@@ -91,6 +91,7 @@ def build_market(curated_id: str, full: dict) -> Market:
         close_time=ms_to_dt(full.get("closeTime")),
         resolution_time=ms_to_dt(full.get("resolutionTime")),
         resolution_source=None,  # Manifold has no clean source field; basis risk N/A in-venue
+        url=full.get("url"),  # canonical {creatorUsername}/{slug} page
         market_id=market_id,
     )
     market.outcomes = outcomes_of(market_id, full, market_type)

@@ -84,7 +84,9 @@ else:
         ).fetchall()
         if rows:
             s = pd.DataFrame(rows, columns=["ts", o["label"]])
-            s["ts"] = pd.to_datetime(s["ts"])
+            # ISO8601: quote timestamps vary in sub-second precision (live points
+            # carry microseconds; whole-second ones don't), so don't infer one format.
+            s["ts"] = pd.to_datetime(s["ts"], format="ISO8601")
             frames.append(s.set_index("ts"))
 
     if frames:
@@ -94,8 +96,19 @@ else:
 
 # --- Markets table -------------------------------------------------------
 st.subheader("Markets")
-rows = conn.execute("SELECT * FROM market ORDER BY venue, title").fetchall()
+rows = conn.execute(
+    "SELECT venue, title, status, close_time, url FROM market ORDER BY venue, title"
+).fetchall()
 if rows:
-    st.dataframe([dict(r) for r in rows], use_container_width=True)
+    df = pd.DataFrame(rows, columns=["venue", "title", "status", "close_time", "url"])
+    st.dataframe(
+        df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "url": st.column_config.LinkColumn("page", display_text="open ↗"),
+            "close_time": st.column_config.DatetimeColumn("close_time"),
+        },
+    )
 else:
     st.info("No markets ingested yet — Kalshi/Polymarket read paths are phase 3.")

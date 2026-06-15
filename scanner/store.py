@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS market (
     resolution_time   TIMESTAMP,          -- expected; nullable
     resolution_source TEXT,               -- free text; feeds basis-risk flag
     status            TEXT NOT NULL,      -- 'open' | 'closed' | 'resolved'
+    url               TEXT,               -- canonical venue page (dashboard click-through)
     UNIQUE (venue, venue_market_id)
 );
 
@@ -96,6 +97,14 @@ class Store:
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Idempotent column adds for DBs created by an earlier schema version.
+        (CREATE TABLE IF NOT EXISTS won't add new columns to an existing table.)"""
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(market)")}
+        if "url" not in cols:
+            self.conn.execute("ALTER TABLE market ADD COLUMN url TEXT")
 
     # --- writes ----------------------------------------------------------
 
@@ -103,19 +112,20 @@ class Store:
         self.conn.execute(
             """
             INSERT INTO market (market_id, venue, venue_market_id, title, market_type,
-                                close_time, resolution_time, resolution_source, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                close_time, resolution_time, resolution_source, status, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(market_id) DO UPDATE SET
                 title=excluded.title,
                 market_type=excluded.market_type,
                 close_time=excluded.close_time,
                 resolution_time=excluded.resolution_time,
                 resolution_source=excluded.resolution_source,
-                status=excluded.status
+                status=excluded.status,
+                url=excluded.url
             """,
             (
                 m.market_id, m.venue, m.venue_market_id, m.title, m.market_type,
-                _iso(m.close_time), _iso(m.resolution_time), m.resolution_source, m.status,
+                _iso(m.close_time), _iso(m.resolution_time), m.resolution_source, m.status, m.url,
             ),
         )
 

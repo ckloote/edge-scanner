@@ -21,11 +21,12 @@ def test_store_creates_schema_and_roundtrips(tmp_path):
 
     m = Market(
         venue="kalshi", venue_market_id="FED-26JUN", title="Fed cut June 2026",
-        market_type="binary", status="open",
+        market_type="binary", status="open", url="https://example.com/fed",
     )
     store.upsert_market(m)
     store.upsert_market(m)  # idempotent: second upsert must not duplicate
     assert len(store.list_markets()) == 1
+    assert store.list_markets()[0]["url"] == "https://example.com/fed"
 
     o = Outcome(market_id=m.market_id, label="YES")
     store.upsert_outcome(o)

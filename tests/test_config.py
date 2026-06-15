@@ -28,8 +28,15 @@ def test_shipped_config_builds_connectors_with_derived_fees():
     assert conns["polymarket"].fees(0.50, 100, "taker") == pytest.approx(1.25)  # default rate
 
 
-def test_load_links_shipped_is_empty_but_valid():
-    assert load_links() == []
+def test_load_links_shipped_is_valid():
+    """The shipped links.yaml parses and every event is well-formed (exactly 2 legs).
+
+    (Was 'is empty'; links.yaml is populated from phase 1 on, so we pin validity,
+    not emptiness.)"""
+    links = load_links()
+    assert isinstance(links, list)
+    for link in links:
+        assert len(link.legs) == 2
 
 
 def test_load_links_parses_two_leg_event(tmp_path):

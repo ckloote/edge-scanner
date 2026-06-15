@@ -54,6 +54,7 @@ class Market:
     close_time: datetime | None = None
     resolution_time: datetime | None = None
     resolution_source: str | None = None
+    url: str | None = None  # canonical venue page, for dashboard click-through
     market_id: str = ""  # derived in __post_init__ if not supplied
     # Transient handoff field — NOT a market table column. Connectors populate it
     # in list_markets() so the daemon can upsert market + outcomes in one pass.

@@ -35,6 +35,7 @@ BINARY_FULL = {
     "isResolved": False,
     "resolution": None,
     "token": "MANA",
+    "url": "https://manifold.markets/Someone/will-anthropic-restore-access-to-fa",
 }
 
 MULTI_FULL = {
@@ -88,6 +89,7 @@ def test_build_market_binary():
     assert m.market_type == "binary"
     assert m.status == "open"
     assert m.close_time == datetime(2026, 6, 30, 23, 59, tzinfo=timezone.utc)
+    assert m.url == "https://manifold.markets/Someone/will-anthropic-restore-access-to-fa"
     assert [o.label for o in m.outcomes] == ["YES", "NO"]
     assert m.outcomes[0].outcome_id == "manifold:P0R6uAC2nU:YES"
 
