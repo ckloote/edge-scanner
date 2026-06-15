@@ -1,0 +1,57 @@
+# Cross-venue edge scanner configuration.
+# Read with stdlib `tomllib` (Python 3.11+). See scanner/config.py.
+
+[scanner]
+poll_interval_seconds = 3        # §9: 15 markets every few seconds is well under all rate limits
+db_path = "data/edge_scanner.db" # SQLite (WAL); the durable store
+log_level = "INFO"
+
+[edge]
+# TBD #1 (design doc §10): set to the current short T-bill yield. One number;
+# drives the entire lockup-cost term. Placeholder below — CONFIRM at build time.
+risk_free_rate = 0.043           # ~4.3% annualized; update to live short T-bill
+
+# ---------------------------------------------------------------------------
+# Per-venue config. Fee parameters were DERIVED FROM LIVE API DOCS on
+# 2026-06-15 — see docs/api-findings.md for the contradictions vs the design
+# doc's starting-point formulas. Re-verify at build time.
+# ---------------------------------------------------------------------------
+
+[venues.manifold]
+base_url = "https://api.manifold.markets/v0"
+fee_rate = 0.0                   # play money (mana); modeled as zero, seam kept
+
+[venues.kalshi]
+# Market-data endpoints are PUBLIC — no auth needed for the v1 read-only path.
+base_url = "https://external-api.kalshi.com/trade-api/v2"
+taker_multiplier = 0.07          # general multiplier (kalshi.com/fee-schedule)
+maker_fraction = 0.25            # maker fee = 25% of taker
+rounding_increment = 0.0001      # current model rounds up to the centicent (NOT whole cent)
+# The market object exposes NO category/multiplier field, so any non-general
+# multiplier must be configured per series ticker here:
+# [venues.kalshi.series_multipliers]
+# KXSOMESERIES = 0.10
+
+[venues.polymarket]
+# Public read endpoints (Gamma + clob.polymarket.com) serve the INTERNATIONAL
+# venue. "us" mode models the separate CFTC-regulated Polymarket US DCM.
+gamma_url = "https://gamma-api.polymarket.com"
+clob_url = "https://clob.polymarket.com"
+venue_mode = "intl"              # "intl" (what we actually poll) | "us"
+taker_rate = 0.05                # default/uniform rate (us mode, and intl fallback)
+maker_rebate = 0.0125            # us maker rebate magnitude (returned as a negative fee)
+us_cap_per_contract = 0.0125     # us: max $1.25 / 100 contracts at p=0.50
+
+# intl per-category taker rates (Fee Structure V2, effective 2026-03-30):
+[venues.polymarket.category_rates]
+crypto = 0.07
+sports = 0.03
+finance = 0.04
+politics = 0.04
+tech = 0.04
+mentions = 0.04
+economics = 0.05
+culture = 0.05
+weather = 0.05
+other = 0.05
+geopolitics = 0.0                # geopolitics / world events are fee-free

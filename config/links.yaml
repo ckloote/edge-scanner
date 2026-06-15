@@ -1,0 +1,28 @@
+# Hand-curated cross-venue event links (design doc §4, §7 phase 3).
+#
+# These are CONFIG, not data: edited by hand, version-controlled, in git.
+# Polarity is the subtle bit — "YES" on one venue can be the COMPLEMENT of the
+# other venue's question. Each leg names which outcome you BUY so the edge
+# engine knows the arb pair (buy YES on A + buy NO on B per §6).
+#
+# Phase 0 ships this file empty-but-valid. Hand-curate ~15 near-dated pairs in
+# phase 3 (TBD #2). Bias toward near-dated events: lockup cost is smallest there,
+# the only regime where edges plausibly survive.
+
+events: []
+
+# ---------------------------------------------------------------------------
+# Example shape (copy under `events:` and fill in real markets in phase 3):
+#
+# events:
+#   - event_id: fed-cut-june-2026
+#     note: "Verify both resolve on the same FOMC announcement date."
+#     resolution_check: confirmed-equivalent   # or 'suspect' -> forces basis_risk_flag
+#     legs:
+#       - venue: kalshi
+#         venue_market_id: FED-26JUN
+#         buy_outcome: YES        # buy YES here ...
+#       - venue: polymarket
+#         venue_market_id: "0xabc..."
+#         buy_outcome: NO         # ... and NO there = the arb pair
+# ---------------------------------------------------------------------------

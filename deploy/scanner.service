@@ -1,0 +1,28 @@
+# systemd unit for the edge-scanner daemon (design doc §3, §9).
+#
+# Install (on the Pi):
+#   sudo cp deploy/scanner.service /etc/systemd/system/edge-scanner.service
+#   # edit User/WorkingDirectory/ExecStart paths below to match your checkout
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now edge-scanner.service
+#   journalctl -u edge-scanner -f
+#
+# `uv run` resolves the project venv, so no activation step is needed.
+
+[Unit]
+Description=Cross-venue prediction market edge scanner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ckloote
+WorkingDirectory=/home/ckloote/code/edge-scanner
+ExecStart=/usr/bin/env uv run edge-scanner
+Restart=always
+RestartSec=5
+# Pi housekeeping (design doc §9): keep live state small; SQLite is the store.
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
