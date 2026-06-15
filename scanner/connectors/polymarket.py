@@ -82,7 +82,7 @@ class PolymarketConnector(BaseConnector):
         rate = self._taker_rate(category)
         return rate * size * price * (1.0 - price)
 
-    async def list_markets(self) -> list[Market]:  # phase 3
+    async def list_markets(self, venue_market_ids: list[str]) -> list[Market]:  # phase 3
         raise NotImplementedError(
             "Polymarket discovery is phase 3. Gamma GET /markets?closed=false; "
             "json.loads clobTokenIds (0=YES,1=NO) and outcomes; conditionId is the "

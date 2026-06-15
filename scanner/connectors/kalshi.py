@@ -67,7 +67,7 @@ class KalshiConnector(BaseConnector):
             raw *= self.maker_fraction
         return ceil_to(raw, self.rounding_increment)
 
-    async def list_markets(self) -> list[Market]:  # phase 3
+    async def list_markets(self, venue_market_ids: list[str]) -> list[Market]:  # phase 3
         raise NotImplementedError(
             "Kalshi discovery is phase 3. GET /markets?series_ticker=...&status=open; "
             "map status active->'open', closed/determined->'closed', finalized->"

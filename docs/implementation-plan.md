@@ -66,18 +66,36 @@ Verified: daemon logs `scanner up …`, creates all four tables, idles on empty
 
 ---
 
-## Phase 1 — One venue E2E (Manifold)
+## Phase 1 — One venue E2E (Manifold) ✅ (delivered)
 
 > **Done when:** a real Manifold market's price history renders in the dashboard.
 
-- Implement `ManifoldConnector.list_markets` / `poll_quotes` (endpoints in the
-  docstrings): `GET /market/{id}` or `/slug/{slug}`; batch `GET /market-probs`.
-- Map the **AMM** to the quote schema: `last = probability`, `bid = ask =
-  probability`, sizes `None` (api-findings §Manifold).
-- Wire the daemon to upsert market/outcome on discovery and insert quotes per cycle
-  (code paths already present in `store.py`/`daemon.py`).
-- Dashboard: add a price-history line chart from `quote_history(outcome_id)`.
-- Tests: a recorded-fixture normalization test (no live network in CI).
+Verified against the live API: curating two real binary markets and polling 3 cycles
+produced market/outcome/quote rows with YES+NO summing to 1.0 and timestamped history
+— exactly what the dashboard chart reads.
+
+- `ManifoldConnector.list_markets(ids)` / `poll_quotes(ids)` implemented
+  (`scanner/connectors/manifold.py`): metadata via `GET /market/{id}` with a
+  `GET /slug/{slug}` fallback (curated id may be an id *or* a slug); quotes via batch
+  `GET /market-probs` (`ids` is a **repeated array param**, confirmed live).
+- **AMM → quote** mapping: binary → YES `bid=ask=last=prob`, NO `= 1−prob`; multi →
+  one outcome per answer at its probability; sizes `None` (no quoted book).
+- Daemon now **syncs metadata** (upsert market + outcomes) before polling, with a
+  periodic re-sync (`META_REFRESH_CYCLES`) to catch status/close changes; per-venue
+  isolation preserved.
+- Dashboard: per-outcome **price-history line chart** (`dashboard/app.py`).
+- Tests: recorded-fixture normalization + an `httpx.MockTransport` integration test —
+  no network in CI (`tests/test_manifold.py`). Suite: **45 passing**.
+
+### Decisions
+
+- **`list_markets` now takes the curated ids** and returns Markets carrying their
+  Outcomes (transient `Market.outcomes`). v1 is curated, so fetching specific ids
+  beats enumerating an entire venue; the Protocol + the Kalshi/Polymarket seams were
+  updated to match.
+- **Quotes self-resolve.** `poll_quotes` resolves any uncached id on demand, so it is
+  correct even if called before a metadata sync (the daemon still syncs first for the
+  FK + dashboard rows).
 
 ## Phase 2 — Within-platform arb + paper exec (Manifold)
 

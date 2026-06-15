@@ -1,8 +1,8 @@
 """Streamlit dashboard (design doc §3) — reads SQLite (WAL) directly, no write path.
 
-Phase 0: boots and shows the canonical tables + counts so you can confirm the
-schema and the WAL read path work. The price-history chart (phase 1) and the
-edge-over-time view (phase 4) attach to the same read-only connection.
+Phase 1: counts + canonical tables, plus a per-outcome **price-history chart**
+(the phase-1 "done when": a real Manifold market's price history renders here).
+The edge-over-time view (phase 4) attaches to the same read-only connection.
 
 Run:  uv run --extra dashboard streamlit run dashboard/app.py
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 
+import pandas as pd
 import streamlit as st
 
 from scanner.config import Settings
@@ -36,7 +37,7 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
 
 
 st.title("Cross-venue edge scanner")
-st.caption("Phase 0 — read-only study harness. Zero real-money risk.")
+st.caption("Phase 1 — Manifold end-to-end. Read-only study harness; zero real-money risk.")
 
 try:
     conn = _connect()
@@ -48,9 +49,53 @@ cols = st.columns(4)
 for col, table in zip(cols, ("market", "outcome", "quote", "edge_snapshot")):
     col.metric(table, _count(conn, table))
 
+# --- Price history -------------------------------------------------------
+st.subheader("Price history")
+
+markets = conn.execute(
+    "SELECT market_id, venue, title FROM market ORDER BY venue, title"
+).fetchall()
+
+if not markets:
+    st.info("No markets ingested yet. Add links to config/links.yaml and run the scanner.")
+else:
+    labels = {f"[{m['venue']}] {m['title']}": m["market_id"] for m in markets}
+    picked = st.selectbox("Market", list(labels))
+    market_id = labels[picked]
+
+    outcomes = conn.execute(
+        "SELECT outcome_id, label FROM outcome WHERE market_id = ? ORDER BY label",
+        (market_id,),
+    ).fetchall()
+    chosen = st.multiselect(
+        "Outcomes",
+        [o["label"] for o in outcomes],
+        default=[o["label"] for o in outcomes][:2],
+    )
+    field = st.radio("Series", ["last", "bid", "ask"], horizontal=True)
+
+    frames = []
+    for o in outcomes:
+        if o["label"] not in chosen:
+            continue
+        rows = conn.execute(
+            f"SELECT ts, {field} AS value FROM quote WHERE outcome_id = ? ORDER BY ts",
+            (o["outcome_id"],),
+        ).fetchall()
+        if rows:
+            s = pd.DataFrame(rows, columns=["ts", o["label"]])
+            s["ts"] = pd.to_datetime(s["ts"])
+            frames.append(s.set_index("ts"))
+
+    if frames:
+        st.line_chart(pd.concat(frames, axis=1))
+    else:
+        st.info("No quotes recorded yet for the selected outcomes.")
+
+# --- Markets table -------------------------------------------------------
 st.subheader("Markets")
 rows = conn.execute("SELECT * FROM market ORDER BY venue, title").fetchall()
 if rows:
     st.dataframe([dict(r) for r in rows], use_container_width=True)
 else:
-    st.info("No markets ingested yet — connector read paths are phase 1/3.")
+    st.info("No markets ingested yet — Kalshi/Polymarket read paths are phase 3.")

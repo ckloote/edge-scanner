@@ -17,13 +17,14 @@ the frequency and duration of real edges can be measured.
 
 ## Status
 
-**Phase 0 (scaffold) — complete.** The `scanner` daemon boots, initializes the
-SQLite (WAL) schema, loads `config/links.yaml`, builds the three connectors, runs a
-poll loop, and restarts cleanly (SIGINT/SIGTERM → clean shutdown). It writes nothing
-useful yet — the connector read paths (`list_markets`/`poll_quotes`) are documented
-phase-1/3 seams. Each venue's `fees()` method is fully implemented and unit-tested.
+**Phase 1 (Manifold end-to-end) — complete.** The `scanner` daemon boots, syncs
+market/outcome metadata for the curated Manifold markets, polls current probabilities
+each cycle, and writes normalized YES/NO (and per-answer multi) quotes into SQLite
+(WAL); the dashboard renders a per-outcome price-history chart. Kalshi and Polymarket
+read paths remain documented phase-3 seams. Every venue's `fees()` method is fully
+implemented and unit-tested.
 
-Phases (see the design doc §7): **0** scaffold ✅ → **1** Manifold end-to-end →
+Phases (see the design doc §7): **0** scaffold ✅ → **1** Manifold end-to-end ✅ →
 **2** within-platform arb + paper execution → **3** add Kalshi/Polymarket + curate
 ~15 links → **4** multi-week calibration study.
 

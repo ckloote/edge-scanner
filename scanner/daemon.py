@@ -24,6 +24,9 @@ log = logging.getLogger("scanner")
 # Exponential backoff bounds for per-venue errors (design doc §9).
 BACKOFF_BASE = 1.0
 BACKOFF_MAX = 60.0
+# Re-sync market/outcome metadata every N cycles to catch status/close changes
+# (cheap at v1 volume; ~10 min at a 3s interval).
+META_REFRESH_CYCLES = 200
 
 
 def _venue_market_ids(links: list[EventLink]) -> dict[str, list[str]]:
@@ -44,18 +47,35 @@ class Scanner:
         self.targets = _venue_market_ids(links)
         self._stop = asyncio.Event()
         self._backoff: dict[str, float] = defaultdict(lambda: BACKOFF_BASE)
+        self._meta_synced: set[str] = set()
+        self._cycle_count = 0
 
     def request_stop(self) -> None:
         self._stop.set()
+
+    async def _sync_metadata(self, venue: str, ids: list[str]) -> None:
+        """Upsert market + outcome rows for the curated set (needed before quotes:
+        quote.outcome_id has a FK to outcome). Runs once, then every refresh."""
+        if venue in self._meta_synced:
+            return
+        markets = await self.connectors[venue].list_markets(ids)
+        for m in markets:
+            self.store.upsert_market(m)
+            for o in m.outcomes:
+                self.store.upsert_outcome(o)
+        self._meta_synced.add(venue)
+        if markets:
+            log.info("%s: synced metadata for %d market(s)", venue, len(markets))
 
     async def _poll_venue(self, venue: str, ids: list[str]) -> None:
         """Poll one venue. Per-venue try/except so one bad venue can't stall others."""
         connector = self.connectors[venue]
         try:
+            await self._sync_metadata(venue, ids)
             quotes = await connector.poll_quotes(ids)
         except NotImplementedError:
-            # Phase 0/1/3 seam: expected until the venue's read path lands.
-            log.debug("%s poll_quotes not implemented yet (phase 0 seam)", venue)
+            # Phase seam: expected until the venue's read path lands (Kalshi/Polymarket).
+            log.debug("%s read path not implemented yet (phase seam)", venue)
             return
         except Exception:  # noqa: BLE001 - isolate venue failures
             backoff = self._backoff[venue]
@@ -64,12 +84,17 @@ class Scanner:
             self._backoff[venue] = min(backoff * 2, BACKOFF_MAX)
             return
         self._backoff[venue] = BACKOFF_BASE
-        self.store.insert_quotes(quotes)
-        # Edge computation over self.links is wired up in phase 3 (needs live quotes).
+        if quotes:
+            self.store.insert_quotes(quotes)
+            log.debug("%s: wrote %d quote(s)", venue, len(quotes))
+        # Edge computation over self.links is wired up in phase 3 (needs all venues live).
 
     async def _cycle(self) -> None:
         if not self.targets:
             return
+        if self._cycle_count and self._cycle_count % META_REFRESH_CYCLES == 0:
+            self._meta_synced.clear()  # force a metadata re-sync this cycle
+        self._cycle_count += 1
         await asyncio.gather(
             *(self._poll_venue(v, ids) for v, ids in self.targets.items())
         )

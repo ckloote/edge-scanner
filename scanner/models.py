@@ -11,7 +11,7 @@ graduation trigger) is a store-layer change, not a model rewrite.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
@@ -55,6 +55,9 @@ class Market:
     resolution_time: datetime | None = None
     resolution_source: str | None = None
     market_id: str = ""  # derived in __post_init__ if not supplied
+    # Transient handoff field — NOT a market table column. Connectors populate it
+    # in list_markets() so the daemon can upsert market + outcomes in one pass.
+    outcomes: list["Outcome"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.market_id:

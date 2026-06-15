@@ -36,8 +36,14 @@ class Connector(Protocol):
 
     venue: str
 
-    async def list_markets(self) -> list[Market]:
-        """Discover + normalize market/outcome metadata."""
+    async def list_markets(self, venue_market_ids: list[str]) -> list[Market]:
+        """Discover + normalize metadata for the curated set.
+
+        Each returned Market carries its Outcomes on the transient `.outcomes`
+        field so the daemon can upsert market + outcomes in one pass. (Refined
+        from the design doc's no-arg signature: v1 is curated, so we fetch the
+        specific ids rather than enumerating an entire venue.)
+        """
         ...
 
     async def poll_quotes(self, venue_market_ids: list[str]) -> list[Quote]:
