@@ -107,13 +107,18 @@ produced market/outcome/quote rows with YES+NO summing to 1.0 and timestamped hi
   harness mirrors the real interface.
 - Tests: arb detection on synthetic books.
 
-## Phase 3 — Add real venues (read-only)
+## Phase 3 — Add real venues (read-only) — in progress
 
 > **Done when:** live quotes for all three venues flow into `quote`.
 
-- Implement `poll_quotes` for Kalshi (dollar strings; orderbook **bids-only** → YES
-  ask = 1 − best NO bid) and Polymarket (Gamma discovery → `json.loads` clobTokenIds;
-  CLOB `/book` for depth). All public, no auth.
+- **Kalshi connector ✅** (`scanner/connectors/kalshi.py`). Top-of-book comes entirely
+  from one batched `GET /markets?tickers=` call: prices are dollar strings in [0,1];
+  the book is **bids-only**, so NO bid == YES ask orders and NO sizes derive from
+  `yes_bid_size_fp`/`yes_ask_size_fp` (no per-market orderbook call needed). Public,
+  no auth. Verified live: complement identities hold (YES ask + NO bid == 1) and book
+  sizes flow through. Tests in `tests/test_kalshi.py` (recorded fixtures + MockTransport).
+- **Polymarket connector** — still a seam. Gamma discovery → `json.loads` clobTokenIds;
+  CLOB `/book` for depth. Public, no auth.
 - Hand-curate ~15 **near-dated** links in `config/links.yaml` (TBD #2); encode
   polarity per leg (`buy_outcome`).
 - Compute and persist `edge_snapshot` per link per cycle via `scanner/edge.py`; set
