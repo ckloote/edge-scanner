@@ -1,23 +1,110 @@
 # Hand-curated cross-venue event links (design doc §4, §7 phase 3).
 #
-# CONFIG, not data: edited by hand, version-controlled. Polarity is the subtle bit —
-# each leg names which outcome you BUY, so the arb pair (buy YES on A + buy NO on B
-# per §6) is explicit. Bias toward NEAR-DATED events: lockup cost is smallest there.
+# CONFIG, not data: edited by hand, version-controlled. Each pair was verified
+# equivalent on 2026-06-16 (same underlying question, same resolution event/date).
+#
+# Polarity convention (fixed for the whole set): leg A = Kalshi buy YES,
+# leg B = Polymarket buy NO. At resolution exactly one leg pays $1, so the pair
+# costs kalshi_yes_ask + poly_no_ask and the edge is 1 - that (design doc §6). This
+# measures the spread in ONE direction; the reverse-direction edge (Polymarket YES +
+# Kalshi NO) is not tracked — adding reverse links is a future option.
+#
+# Bias toward NEAR-DATED events (smallest lockup): the Fed July meeting (~6 weeks)
+# and the World Cup final (~5 weeks) anchor the set.
 
 events:
-  # First real cross-venue link. Both legs ask "does the Fed hold rates at the
-  # July 2026 FOMC?" and resolve on the same 2026-07-29 decision, so Kalshi YES
-  # (Fed maintains) pairs with Polymarket NO (not 'no change') as the arb pair.
-  - event_id: fed-hold-jul-2026
-    note: >
-      Kalshi KXFEDDECISION-26JUL-H0 'Fed maintains rate' == Polymarket 'No change in
-      Fed interest rates after the July 2026 meeting'. Both resolve on the 2026-07-29
-      FOMC announcement. Verified equivalent on 2026-06-16.
+  # ----- Fed July 2026 FOMC (resolves 2026-07-29) ------------------------
+  # Kalshi KXFEDDECISION-26JUL-* YES == Polymarket same-outcome NO.
+  - event_id: fed-jul-hold
+    note: "Fed maintains rate in July 2026. Kalshi 'Fed maintains rate' == PM 'No change'."
     resolution_check: confirmed-equivalent
     legs:
-      - venue: kalshi
-        venue_market_id: KXFEDDECISION-26JUL-H0
-        buy_outcome: "YES"      # buy YES (Fed holds) on Kalshi ... (quote it: YAML reads YES as a bool)
-      - venue: polymarket
-        venue_market_id: "0x8bf1c1536ecb1c08fe13c6b71e8ab1f58bf3461c4cb79f5f1679f869a06aef86"
-        buy_outcome: "NO"       # ... and NO (not 'no change') on Polymarket = the arb pair
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26JUL-H0, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x8bf1c1536ecb1c08fe13c6b71e8ab1f58bf3461c4cb79f5f1679f869a06aef86", buy_outcome: "NO"}
+  - event_id: fed-jul-cut25
+    note: "Fed cuts 25bps in July 2026. Kalshi 'Cut 25bps' == PM '25 bps decrease'."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26JUL-C25, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x4ede078cae84a5877ac32d7fb48811e5c23549a1904b7df06ff7935c6d79d831", buy_outcome: "NO"}
+  - event_id: fed-jul-hike25
+    note: "Fed hikes 25bps in July 2026. Kalshi 'Hike 25bps' == PM '25 bps increase'."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26JUL-H25, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0xb5c0abeecb5502e6e8d83155c27819174d8317af3c425c3afc5a8c45257a3793", buy_outcome: "NO"}
+
+  # ----- Fed September 2026 FOMC (resolves 2026-09-16) -------------------
+  - event_id: fed-sep-hold
+    note: "Fed maintains rate in Sep 2026. Kalshi 'Fed maintains rate' == PM 'No change'."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26SEP-H0, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0xa3b36b2d6104d34af4e6c6215fc818e43352e78a748fbfb0b85e3a35f71dec9a", buy_outcome: "NO"}
+  - event_id: fed-sep-cut25
+    note: "Fed cuts 25bps in Sep 2026. Kalshi 'Cut 25bps' == PM '25 bps decrease'."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26SEP-C25, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0xac02cbb049e46d6a3627c0fdf52fa554982a9025d45968207b362acb6ca4b830", buy_outcome: "NO"}
+  - event_id: fed-sep-hike25
+    note: "Fed hikes 25bps in Sep 2026. Kalshi 'Hike 25bps' == PM '25 bps increase'."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXFEDDECISION-26SEP-H25, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x876506d8b2bd7a0d3fa4fe18c024eee6e1dd81ee24c26795dadd6cfe4a7b5d0d", buy_outcome: "NO"}
+
+  # ----- 2026 FIFA World Cup winner (final ~2026-07-19) ------------------
+  # Kalshi KXMENWORLDCUP-26-<ISO> 'will <team> win' YES == Polymarket same-team NO.
+  # (Kalshi close_time is a far-future placeholder; expected_expiration_time = the
+  #  ~2026-07-19 final, which the connector uses for resolution_time.)
+  - event_id: wc26-spain
+    note: "Spain wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-ES, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x7976b8dbacf9077eb1453a62bcefd6ab2df199acd28aad276ff0d920d6992892", buy_outcome: "NO"}
+  - event_id: wc26-portugal
+    note: "Portugal wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-PT, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x4f3421fb2daf5cca7430ed8d8132463963081572d75434393a1808fdb8829fe8", buy_outcome: "NO"}
+  - event_id: wc26-england
+    note: "England wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-GB, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x375409bc5eeeff961e82b479caeccc20f33d15738e5bce1186d628aa3d9dfb1f", buy_outcome: "NO"}
+  - event_id: wc26-brazil
+    note: "Brazil wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-BR, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x30d55d8124ee1e12dabe89201badc45669b81dff69e4ce44d961f32878ec178a", buy_outcome: "NO"}
+  - event_id: wc26-germany
+    note: "Germany wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-DE, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x1595b4818eeb1ea1e0bec5de6f057218e557feee9b405a0e930d290384fa1d16", buy_outcome: "NO"}
+  - event_id: wc26-netherlands
+    note: "Netherlands wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-NL, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x9be56371f6a29d12769b2f196847ee825b9585ebb8bfa042136be031b081eba1", buy_outcome: "NO"}
+  - event_id: wc26-argentina
+    note: "Argentina wins the 2026 World Cup."
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-AR, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0x0c4cd2055d6ea89354ffddc55d6dbcef9355748112ea952fc925f3db6a5c457f", buy_outcome: "NO"}
+  - event_id: wc26-usa
+    note: >
+      USA wins the 2026 World Cup. Notable cross-venue price divergence at curation
+      (Kalshi ~0.036 vs Polymarket ~0.021) — a candidate the study should watch.
+    resolution_check: confirmed-equivalent
+    legs:
+      - {venue: kalshi, venue_market_id: KXMENWORLDCUP-26-US, buy_outcome: "YES"}
+      - {venue: polymarket, venue_market_id: "0xcdb1f0400949238a63d3e88243d2ada08cd9c2a71985ced9f0cfd5e66354cf90", buy_outcome: "NO"}

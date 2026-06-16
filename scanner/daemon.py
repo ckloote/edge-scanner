@@ -20,8 +20,11 @@ from .edge import EdgeInputs, compute_edge, days_between
 from .models import EdgeSnapshot, EventLink, make_market_id, make_outcome_id
 from .store import Store
 
-# Resolution times closer than this are treated as the same date (basis-risk check).
-BASIS_TIME_TOLERANCE_S = 86400.0
+# Resolution timestamps within this window are treated as the same event for the
+# basis-risk check (venues timestamp the same resolution slightly differently — e.g.
+# a World Cup final dated 07-19 on one venue and 07-20 on the other). Materially
+# different dates still flag.
+BASIS_TIME_TOLERANCE_S = 172800.0  # 2 days
 
 log = logging.getLogger("scanner")
 

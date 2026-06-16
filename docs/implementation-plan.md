@@ -126,12 +126,21 @@ cross-venue edge computes end-to-end and renders in the dashboard.
   `resolution_source` is **not** compared — it virtually always differs across venues, so
   the curator's `resolution_check` is the source-equivalence signal). Tests in
   `tests/test_edge_wiring.py`.
-- **First real link curated** (`config/links.yaml`): `fed-hold-jul-2026` — Kalshi
-  `KXFEDDECISION-26JUL-H0` YES ≡ Polymarket "No change" NO, both resolving 2026-07-29.
-  Live result: gross ≈ 0, net ≈ −0.013 after fees + lockup (an honest no-arb).
+- **~15 links curated ✅** (`config/links.yaml`, verified 2026-06-16): 6 Fed-decision
+  outcomes (July + September FOMC × hold / 25bps cut / 25bps hike) and 8 World Cup
+  winner team markets — all confirmed-equivalent, near-dated, liquid on both venues.
+  Live: edges compute clean (basis 0, correct ~33–92 day horizons) — mostly slightly
+  negative net (efficient), with real divergences surfacing (e.g. `wc26-argentina`
+  gross +1.1%).
 - **Gotcha fixed:** YAML 1.1 reads unquoted `YES`/`NO` as booleans — the links loader now
   normalizes `buy_outcome` (`scanner/config._norm_outcome`).
-- Curating the rest of the ~15 near-dated links (TBD #2) is the remaining phase-3 work.
+- **Data-quality note:** Kalshi `close_time` can be a far-future placeholder
+  (`can_close_early`); the connector uses `expected_expiration_time` for
+  `resolution_time`, so lockup/horizon stay correct (verified on the World Cup markets).
+- **Known limitation:** links are **one-directional** (fixed Kalshi YES + Polymarket NO).
+  Divergences whose profitable side is the reverse (e.g. `fed-sep-hold`, `wc26-usa`) show
+  as negative; catching both sides needs either reverse links or a direction-agnostic
+  edge engine (a worthwhile follow-up).
 - **Do not** start automated semantic matching (design doc §7).
 
 ## Phase 4 — Calibration study
@@ -150,7 +159,7 @@ cross-venue edge computes end-to-end and renders in the dashboard.
 | TBD | Status |
 |---|---|
 | #1 `risk_free_rate` | Placeholder **0.043** in `settings.toml` — **confirm** live short T-bill at build. |
-| #2 ~15 links | Deferred to phase 3; `links.yaml` ships empty-but-valid (loader enforces exactly 2 legs, unique ids). |
+| #2 ~15 links | **Done** — 14 verified links curated (6 Fed + 8 World Cup) in `config/links.yaml`. |
 | #3 Polymarket public CLOB read | **Resolved** — `/book` is public + has depth (api-findings). |
 | #4 Kalshi category multipliers | **Resolved/flagged** — schedule appears uniform 0.07; kept per-series configurable. Re-confirm the canonical PDF. |
 
