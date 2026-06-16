@@ -7,6 +7,17 @@ poll_interval_seconds = 10       # ~14 links; Polymarket fetches each YES/NO boo
 db_path = "data/edge_scanner.db" # SQLite (WAL); the durable store
 log_level = "INFO"
 
+[manifold_harness]
+# Phase-2 within-platform arb harness: Manifold markets (id or slug) to watch for a
+# complete set buyable under $1 (binary YES+NO, or multi buy-all). Zero real-money risk.
+watch = [
+    "cnlR6p5sZl",   # binary, deep limit book (US-Iran nuclear deal by end of June?)
+    "qtUIl9NEh8",   # multi (2026 Georgia Republican primary)
+]
+max_stake = 100.0          # cap on paper share-sets per fill
+cooldown_seconds = 300.0   # don't re-execute the same standing arb within this window
+min_net_edge = 0.0         # only "trade" when net edge (after fees) stays positive
+
 [edge]
 # TBD #1 (design doc §10): set to the current short T-bill yield. One number;
 # drives the entire lockup-cost term. Placeholder below — CONFIRM at build time.

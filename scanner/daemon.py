@@ -14,10 +14,12 @@ import signal
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from .arb import detect
 from .config import Settings, load_links
 from .connectors.base import build_connectors
 from .edge import EdgeInputs, compute_edge, days_between
 from .models import EdgeSnapshot, EventLink, make_market_id, make_outcome_id
+from .paper import PaperExecutor
 from .store import Store
 
 # Resolution timestamps within this window are treated as the same event for the
@@ -60,6 +62,12 @@ class Scanner:
         self._backoff: dict[str, float] = defaultdict(lambda: BACKOFF_BASE)
         self._meta_synced: set[str] = set()
         self._cycle_count = 0
+        mh = settings.manifold_harness
+        self.harness_watch = mh.watch
+        self.paper = PaperExecutor(
+            self.store, max_stake=mh.max_stake, cooldown_s=mh.cooldown_s,
+            min_net_edge=mh.min_net_edge,
+        )
 
     def request_stop(self) -> None:
         self._stop.set()
@@ -101,18 +109,40 @@ class Scanner:
         # Edge computation over self.links is wired up in phase 3 (needs all venues live).
 
     async def _cycle(self) -> None:
-        if not self.targets:
-            return
         if self._cycle_count and self._cycle_count % META_REFRESH_CYCLES == 0:
             self._meta_synced.clear()  # force a metadata re-sync this cycle
         self._cycle_count += 1
-        await asyncio.gather(
-            *(self._poll_venue(v, ids) for v, ids in self.targets.items())
-        )
+        if self.targets:
+            await asyncio.gather(
+                *(self._poll_venue(v, ids) for v, ids in self.targets.items())
+            )
+            try:
+                self._compute_edges()
+            except Exception:  # noqa: BLE001 - never let edge math kill the poll loop
+                log.warning("edge computation failed this cycle", exc_info=True)
         try:
-            self._compute_edges()
-        except Exception:  # noqa: BLE001 - never let edge math kill the poll loop
-            log.warning("edge computation failed this cycle", exc_info=True)
+            await self._run_manifold_harness()
+        except Exception:  # noqa: BLE001 - harness must never stall the loop
+            log.warning("manifold harness failed this cycle", exc_info=True)
+
+    async def _run_manifold_harness(self) -> None:
+        """Phase-2 harness: detect within-platform arb on watched Manifold markets and
+        paper-execute with fake money. Per-market isolation; zero real-money risk."""
+        if not self.harness_watch:
+            return
+        conn = self.connectors["manifold"]
+        now = datetime.now(tz=timezone.utc)
+        for vmid in self.harness_watch:
+            try:
+                result = await conn.arb_quotes(vmid)
+                if not result:
+                    continue
+                kind, legs = result
+                arb = detect(make_market_id("manifold", vmid), kind, legs, conn.fees)
+                if arb:
+                    self.paper.execute(arb, now)
+            except Exception:  # noqa: BLE001 - isolate per-market failures
+                log.debug("manifold harness error for %s", vmid, exc_info=True)
 
     # --- edge engine (design doc §6) ------------------------------------
 

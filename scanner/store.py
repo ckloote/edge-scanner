@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import EdgeSnapshot, Market, Outcome, Quote
+from .models import EdgeSnapshot, Market, Outcome, PaperTrade, Quote
 
 SCHEMA = """
 -- Canonical market registry (one row per venue market).
@@ -67,6 +67,21 @@ CREATE TABLE IF NOT EXISTS edge_snapshot (
     basis_risk_flag    INTEGER NOT NULL   -- 0/1, see design doc §6
 );
 CREATE INDEX IF NOT EXISTS idx_edge_event_ts ON edge_snapshot(event_id, ts);
+
+-- Paper (fake-money) within-platform arb executions (design doc §7 phase 2).
+-- Proves the execution harness at zero risk; profit is locked at execution.
+CREATE TABLE IF NOT EXISTS paper_trade (
+    ts            TIMESTAMP NOT NULL,
+    market_id     TEXT NOT NULL,
+    kind          TEXT NOT NULL,        -- 'binary' | 'multi'
+    size          REAL NOT NULL,        -- share-sets bought (one set pays $1 at resolution)
+    cost          REAL NOT NULL,        -- per-set cost (sum of leg asks)
+    modeled_fees  REAL NOT NULL,
+    gross_profit  REAL NOT NULL,        -- size * (1 - cost)
+    net_profit    REAL NOT NULL,        -- gross - fees
+    legs          TEXT NOT NULL         -- JSON: [{outcome_id, label, ask}]
+);
+CREATE INDEX IF NOT EXISTS idx_paper_market_ts ON paper_trade(market_id, ts);
 """
 
 
@@ -168,6 +183,30 @@ class Store:
         )
 
     # --- reads (dashboard) ----------------------------------------------
+
+    def insert_paper_trade(self, t: "PaperTrade") -> None:
+        self.conn.execute(
+            """
+            INSERT INTO paper_trade (ts, market_id, kind, size, cost, modeled_fees,
+                                     gross_profit, net_profit, legs)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _iso(t.ts), t.market_id, t.kind, t.size, t.cost, t.modeled_fees,
+                t.gross_profit, t.net_profit, t.legs,
+            ),
+        )
+
+    def recent_paper_trade(self, market_id: str, since: datetime) -> bool:
+        """True if a paper trade for this market exists at/after `since` (dedup window)."""
+        row = self.conn.execute(
+            "SELECT 1 FROM paper_trade WHERE market_id = ? AND ts >= ? LIMIT 1",
+            (market_id, _iso(since)),
+        ).fetchone()
+        return row is not None
+
+    def list_paper_trades(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM paper_trade ORDER BY ts DESC").fetchall()
 
     def get_market(self, market_id: str) -> sqlite3.Row | None:
         return self.conn.execute(

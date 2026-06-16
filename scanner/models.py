@@ -110,6 +110,25 @@ class EdgeSnapshot:
     basis_risk_flag: int  # 0/1 (design doc §6)
 
 
+@dataclass(slots=True)
+class PaperTrade:
+    """A fake-money within-platform arb execution (design doc §7 phase 2).
+
+    `legs` is a JSON string of the filled outcomes; profit is locked at execution
+    (an arb pays exactly `size` at resolution for a per-set cost of `cost`).
+    """
+
+    ts: datetime
+    market_id: str
+    kind: str  # 'binary' | 'multi'
+    size: float
+    cost: float
+    modeled_fees: float
+    gross_profit: float
+    net_profit: float
+    legs: str  # JSON
+
+
 # --- Event links (hand-curated YAML; design doc §4) -----------------------
 
 

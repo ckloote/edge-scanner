@@ -29,7 +29,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .base import BaseConnector
+from ..arb import ArbLeg
 from ..models import Market, Outcome, Quote, make_market_id, make_outcome_id
+
+
+def tradable_ask(amm_price: float, opposite_best_bid: float | None) -> float:
+    """Cheapest way to buy this outcome: the AMM price, or filling the best opposite-side
+    limit bid (a NO bid at q lets you buy YES at 1-q), whichever is lower."""
+    if opposite_best_bid is None:
+        return amm_price
+    return min(amm_price, 1.0 - opposite_best_bid)
 
 BASE_URL = "https://api.manifold.markets/v0"
 _PROBS_CHUNK = 100  # /market-probs accepts up to 100 ids per call
@@ -176,6 +185,57 @@ class ManifoldConnector(BaseConnector):
     async def list_markets(self, venue_market_ids: list[str]) -> list[Market]:
         """Fetch + normalize metadata (market + outcomes) for the curated set."""
         return [await self._resolve(cid) for cid in venue_market_ids]
+
+    async def _open_limit_bets(self, contract_id: str) -> list[dict]:
+        r = await self.client.get(
+            f"{self.base_url}/bets",
+            params={"contractId": contract_id, "kinds": "open-limit", "limit": 1000},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    @staticmethod
+    def _best_bid(limits: list[dict], outcome: str, answer_id: str | None = None) -> float | None:
+        return max(
+            (b["limitProb"] for b in limits
+             if b.get("outcome") == outcome and (answer_id is None or b.get("answerId") == answer_id)),
+            default=None,
+        )
+
+    async def arb_quotes(self, venue_market_id: str) -> tuple[str, list[ArbLeg]] | None:
+        """Tradable per-outcome asks (AMM + limit book) for within-platform arb
+        detection (phase 2). Returns (kind, [ArbLeg]); None for unsupported markets.
+
+        The limit book is bids-only (YES/NO buy-limits), so a YES ask is min(AMM prob,
+        1 - best NO bid). Sizes are left None (Manifold's mana/share top-of-book size
+        isn't cleanly exposed); the paper harness falls back to a capped stake."""
+        full = await self._fetch_full(venue_market_id)
+        market_id = make_market_id("manifold", venue_market_id)
+        limits = await self._open_limit_bets(full["id"])
+        otype = full.get("outcomeType")
+
+        if otype == "BINARY":
+            prob = full["probability"]
+            yes_ask = tradable_ask(prob, self._best_bid(limits, "NO"))
+            no_ask = tradable_ask(1.0 - prob, self._best_bid(limits, "YES"))
+            return "binary", [
+                ArbLeg(make_outcome_id(market_id, "YES"), "YES", yes_ask),
+                ArbLeg(make_outcome_id(market_id, "NO"), "NO", no_ask),
+            ]
+
+        if otype in ("MULTIPLE_CHOICE", "FREE_RESPONSE") and full.get("shouldAnswersSumToOne"):
+            # Buy YES on every answer: exactly one resolves YES, so a sum < $1 is an arb.
+            legs = [
+                ArbLeg(
+                    make_outcome_id(market_id, a["text"]),
+                    a["text"],
+                    tradable_ask(a["probability"], self._best_bid(limits, "NO", a["id"])),
+                )
+                for a in full.get("answers", [])
+            ]
+            return "multi", legs
+
+        return None  # independent multi / numeric: no within-platform set arb
 
     async def poll_quotes(self, venue_market_ids: list[str]) -> list[Quote]:
         """Batch-poll current probabilities and normalize to quotes."""

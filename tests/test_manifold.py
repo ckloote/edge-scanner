@@ -187,3 +187,59 @@ async def test_poll_quotes_self_resolves_without_prior_sync():
         assert any(q.outcome_id == "manifold:P0R6uAC2nU:YES" for q in quotes)
     finally:
         await c.aclose()
+
+
+# --- arb_quotes: tradable asks from AMM + limit book (phase 2) --------------
+
+def _arb_handler(full, limits):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v0/market/"):
+            return httpx.Response(200, json=full)
+        if request.url.path == "/v0/bets":
+            return httpx.Response(200, json=limits)
+        return httpx.Response(404, json={})
+    return handler
+
+
+def _arb_connector(full, limits) -> ManifoldConnector:
+    c = ManifoldConnector()
+    c._client = httpx.AsyncClient(transport=httpx.MockTransport(_arb_handler(full, limits)))
+    return c
+
+
+async def test_arb_quotes_binary_uses_limit_book():
+    full = {**BINARY_FULL, "probability": 0.5}
+    # best NO bid 0.60 -> YES ask 0.40; best YES bid 0.65 -> NO ask 0.35; sum 0.75 < 1
+    limits = [{"outcome": "NO", "limitProb": 0.60}, {"outcome": "YES", "limitProb": 0.65}]
+    c = _arb_connector(full, limits)
+    try:
+        kind, legs = await c.arb_quotes("P0R6uAC2nU")
+        asks = {leg.label: leg.ask for leg in legs}
+        assert kind == "binary"
+        assert asks["YES"] == pytest.approx(0.40)
+        assert asks["NO"] == pytest.approx(0.35)
+    finally:
+        await c.aclose()
+
+
+async def test_arb_quotes_binary_amm_only_sums_to_one():
+    c = _arb_connector({**BINARY_FULL, "probability": 0.4}, [])
+    try:
+        _, legs = await c.arb_quotes("P0R6uAC2nU")
+        assert sum(leg.ask for leg in legs) == pytest.approx(1.0)  # no arb from AMM mid
+    finally:
+        await c.aclose()
+
+
+async def test_arb_quotes_multi_per_answer_limit():
+    # NO limit 0.5 on Burt Jones -> ask min(0.76, 0.5) = 0.5; Rick stays at AMM 0.24
+    limits = [{"outcome": "NO", "limitProb": 0.5, "answerId": "9OSOqNPqZ8"}]
+    c = _arb_connector(MULTI_FULL, limits)
+    try:
+        kind, legs = await c.arb_quotes("qtUIl9NEh8")
+        asks = {leg.label: leg.ask for leg in legs}
+        assert kind == "multi"
+        assert asks["Burt Jones"] == pytest.approx(0.5)
+        assert asks["Rick Jackson"] == pytest.approx(0.24)
+    finally:
+        await c.aclose()

@@ -33,9 +33,20 @@ class EdgeConfig:
 
 
 @dataclass(slots=True)
+class HarnessConfig:
+    """Manifold within-platform arb harness (design doc §7 phase 2)."""
+
+    watch: list[str]  # Manifold market ids/slugs to monitor
+    max_stake: float
+    cooldown_s: float
+    min_net_edge: float
+
+
+@dataclass(slots=True)
 class Settings:
     scanner: ScannerConfig
     edge: EdgeConfig
+    manifold_harness: HarnessConfig
     # Per-venue raw config dicts, passed straight to each connector's __init__.
     venues: dict[str, dict]
 
@@ -50,6 +61,7 @@ class Settings:
         if not db_path.is_absolute():
             db_path = ROOT / db_path
 
+        mh = raw.get("manifold_harness", {})
         return cls(
             scanner=ScannerConfig(
                 poll_interval_seconds=float(scanner_raw.get("poll_interval_seconds", 3)),
@@ -58,6 +70,12 @@ class Settings:
             ),
             edge=EdgeConfig(
                 risk_free_rate=float(raw.get("edge", {}).get("risk_free_rate", 0.0)),
+            ),
+            manifold_harness=HarnessConfig(
+                watch=[str(x) for x in mh.get("watch", [])],
+                max_stake=float(mh.get("max_stake", 100.0)),
+                cooldown_s=float(mh.get("cooldown_seconds", 300.0)),
+                min_net_edge=float(mh.get("min_net_edge", 0.0)),
             ),
             venues=raw.get("venues", {}),
         )

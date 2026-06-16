@@ -95,6 +95,32 @@ else:
     )
     st.line_chart(edf.set_index("ts")[["gross_edge", "net_edge"]])
 
+# --- Within-platform arb: Manifold paper trades (design doc §7 phase 2) ----
+st.subheader("Within-platform arb — Manifold paper trades")
+try:
+    prows = conn.execute(
+        "SELECT ts, market_id, kind, size, cost, net_profit, legs FROM paper_trade "
+        "ORDER BY ts DESC LIMIT 100"
+    ).fetchall()
+except sqlite3.OperationalError:
+    prows = []  # table appears once the daemon (re)opens the db with the current schema
+if prows:
+    c1, c2 = st.columns(2)
+    c1.metric("paper trades", len(prows), help="fake-money within-platform arb fills")
+    c2.metric("cumulative net profit", f"{sum(r['net_profit'] for r in prows):.2f}")
+    st.dataframe(
+        [{"ts": r["ts"], "market": r["market_id"], "kind": r["kind"], "size": r["size"],
+          "cost": round(r["cost"], 4), "net_profit": round(r["net_profit"], 4)}
+         for r in prows],
+        width="stretch", hide_index=True,
+    )
+else:
+    st.info(
+        "No within-platform arbs captured yet — Manifold is efficient (crossing limit "
+        "orders get matched away), so the harness fires only when a complete set is "
+        "briefly buyable under $1."
+    )
+
 # --- Price history -------------------------------------------------------
 st.subheader("Price history")
 

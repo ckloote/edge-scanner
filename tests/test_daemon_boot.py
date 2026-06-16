@@ -40,9 +40,10 @@ def test_store_creates_schema_and_roundtrips(tmp_path):
 async def test_scanner_boots_and_cycles_with_empty_links(tmp_path):
     settings = Settings.load()
     settings.scanner.db_path = tmp_path / "edge.db"  # don't touch the real db
+    settings.manifold_harness.watch = []  # keep the cycle offline (no harness network)
     scanner = Scanner(settings, links=[])
 
-    # No links -> no poll targets -> a cycle is a clean no-op.
+    # No links + no harness -> a cycle is a clean no-op.
     await scanner._cycle()
     assert set(scanner.connectors) == {"manifold", "kalshi", "polymarket"}
 

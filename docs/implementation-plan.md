@@ -97,15 +97,25 @@ produced market/outcome/quote rows with YES+NO summing to 1.0 and timestamped hi
   correct even if called before a metadata sync (the daemon still syncs first for the
   FK + dashboard rows).
 
-## Phase 2 — Within-platform arb + paper exec (Manifold)
+## Phase 2 — Within-platform arb + paper exec (Manifold) ✅ (delivered)
 
 > **Done when:** edge math *and* the execution harness are both proven at zero risk.
 
-- Detector: binary `YES+NO < $1`; multi `Σ answer prob ≠ 100%` (the only place the
-  multi path is used — design doc §10).
-- Paper-execution loop with fake money against the AMM; reuse `fees()` (=0) so the
-  harness mirrors the real interface.
-- Tests: arb detection on synthetic books.
+- **Detector** (`scanner/arb.py`): a complete set buyable under $1 is an arb — binary
+  `YES_ask + NO_ask < 1`; multi (shouldAnswersSumToOne) `Σ answer_ask < 1`. Pure +
+  unit-tested (`tests/test_arb.py`).
+- **Tradable asks** (`ManifoldConnector.arb_quotes`): AMM price combined with the
+  limit book (bids-only, like Kalshi: YES ask = min(prob, 1 − best NO bid); per-answer
+  for multi). Tested with recorded fixtures.
+- **Paper-execution harness** (`scanner/paper.py` + `paper_trade` table): fake-money
+  fills with a capped stake, locked-in profit, a per-market cooldown, and a positive-net
+  guard. Unit-tested (`tests/test_paper.py`).
+- **Daemon wiring**: a per-cycle pass over a configured Manifold watchlist
+  (`[manifold_harness]` in settings.toml); dashboard shows the paper trades.
+- Verified live: both watched markets price a complete set at exactly $1.00 (no arb —
+  Manifold is efficient; crossing limit orders get matched away), and the paper path
+  records a fill correctly on a synthetic arb. So the math + execution are proven at
+  zero risk; live detections are expected to be rare.
 
 ## Phase 3 — Add real venues (read-only) ✅ (core complete)
 

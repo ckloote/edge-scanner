@@ -25,9 +25,13 @@ writes normalized quotes, and computes the §6 cross-venue edge per linked event
 **net-edge-over-time** view (with the basis-risk flag broken out). One real link is
 curated (`fed-hold-jul-2026`); curating the rest of the ~15 is what's left.
 
+A **within-platform arb harness** (phase 2) also runs on Manifold: it detects a
+complete set buyable under $1 (binary YES+NO, or multi buy-all) and paper-executes
+with fake money — proving the edge math and execution loop at zero risk.
+
 Phases (see the design doc §7): **0** scaffold ✅ → **1** Manifold end-to-end ✅ →
-**2** within-platform arb + paper execution → **3** add Kalshi ✅ / Polymarket ✅ +
-curate ~15 links → **4** multi-week calibration study.
+**2** within-platform arb + paper execution ✅ → **3** add Kalshi ✅ / Polymarket ✅ +
+curate ~15 links ✅ → **4** multi-week calibration study.
 
 ## How it works
 
