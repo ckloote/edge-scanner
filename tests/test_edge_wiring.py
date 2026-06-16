@@ -58,6 +58,34 @@ def test_compute_edges_persists_snapshot(tmp_path):
     sc.store.close()
 
 
+def test_compute_edges_picks_better_direction(tmp_path):
+    """When the encoded direction is a loss but its mirror is profitable, persist the
+    mirror (buy NO on A + YES on B)."""
+    res = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    link = EventLink(
+        event_id="divergent",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+        resolution_check="confirmed-equivalent",
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    now = datetime.now(tz=timezone.utc)
+    _seed_leg(sc.store, "kalshi", "KT", 0, 0, res)
+    _seed_leg(sc.store, "polymarket", "0xPC", 0, 0, res)
+    # encoded dir (KT:YES + 0xPC:NO) costs 0.78 + 0.32 = 1.10 -> gross -0.10
+    sc.store.insert_quote(Quote(ts=now, outcome_id="kalshi:KT:YES", ask=0.78, ask_size=100))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:NO", ask=0.32, ask_size=100))
+    # mirror dir (KT:NO + 0xPC:YES) costs 0.22 + 0.71 = 0.93 -> gross +0.07
+    sc.store.insert_quote(Quote(ts=now, outcome_id="kalshi:KT:NO", ask=0.22, ask_size=100))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:YES", ask=0.71, ask_size=100))
+
+    sc._compute_edges()
+    r = sc.store.edge_history("divergent")[-1]
+    assert r["gross_edge"] == pytest.approx(0.07)  # the mirror, not -0.10
+    assert r["leg_a_outcome_id"] == "kalshi:KT:NO"
+    assert r["leg_b_outcome_id"] == "polymarket:0xPC:YES"
+    sc.store.close()
+
+
 def test_compute_edges_skips_when_a_leg_has_no_ask(tmp_path):
     link = EventLink(
         event_id="incomplete",

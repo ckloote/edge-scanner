@@ -26,6 +26,10 @@ from .store import Store
 # different dates still flag.
 BASIS_TIME_TOLERANCE_S = 172800.0  # 2 days
 
+# For a binary link, both the encoded pair (A.YES + B.NO) and its mirror
+# (A.NO + B.YES) pay $1 at resolution, so an arb can exist in either direction.
+_COMPLEMENT = {"YES": "NO", "NO": "YES"}
+
 log = logging.getLogger("scanner")
 
 # Exponential backoff bounds for per-venue errors (design doc §9).
@@ -139,38 +143,59 @@ class Scanner:
                 return 1
         return 0
 
+    def _eval_direction(self, leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate):
+        """Evaluate one arb direction (buy out_a on A + out_b on B). None if either
+        leg lacks a tradable ask. Returns (oid_a, oid_b, EdgeResult)."""
+        oid_a = make_outcome_id(mid_a, out_a)
+        oid_b = make_outcome_id(mid_b, out_b)
+        qa = self.store.latest_quote(oid_a)
+        qb = self.store.latest_quote(oid_b)
+        if not qa or not qb or qa["ask"] is None or qb["ask"] is None:
+            return None
+        inp = EdgeInputs(
+            ask_a=qa["ask"],
+            ask_b=qb["ask"],
+            ask_size_a=qa["ask_size"] or 0.0,
+            ask_size_b=qb["ask_size"] or 0.0,
+            fee_a=self.connectors[leg_a.venue].fees(qa["ask"], 1.0, "taker"),
+            fee_b=self.connectors[leg_b.venue].fees(qb["ask"], 1.0, "taker"),
+            days_to_resolution=days,
+            basis_risk_flag=basis,
+        )
+        return oid_a, oid_b, compute_edge(inp, rate)
+
     def _compute_edges(self) -> None:
-        """For each linked event, compute the §6 edge from the latest quotes and persist."""
+        """For each linked event, evaluate BOTH arb directions from the latest quotes
+        and persist the more profitable one (design doc §6, direction-agnostic).
+
+        The mirror direction (buy the complement outcome on each leg) is just as valid
+        an arb for a binary equivalence, so a divergence is captured whichever way it
+        leans — what the §1 frequency/duration question actually needs."""
         now = datetime.now(tz=timezone.utc)
         rate = self.settings.edge.risk_free_rate
         for link in self.links:
             leg_a, leg_b = link.legs
             mid_a = make_market_id(leg_a.venue, leg_a.venue_market_id)
             mid_b = make_market_id(leg_b.venue, leg_b.venue_market_id)
-            oid_a = make_outcome_id(mid_a, leg_a.buy_outcome)
-            oid_b = make_outcome_id(mid_b, leg_b.buy_outcome)
-
-            qa = self.store.latest_quote(oid_a)
-            qb = self.store.latest_quote(oid_b)
-            if not qa or not qb or qa["ask"] is None or qb["ask"] is None:
-                continue  # need a tradable ask on both legs
-
             mkt_a = self.store.get_market(mid_a)
             mkt_b = self.store.get_market(mid_b)
-            inp = EdgeInputs(
-                ask_a=qa["ask"],
-                ask_b=qb["ask"],
-                ask_size_a=qa["ask_size"] or 0.0,
-                ask_size_b=qb["ask_size"] or 0.0,
-                fee_a=self.connectors[leg_a.venue].fees(qa["ask"], 1.0, "taker"),
-                fee_b=self.connectors[leg_b.venue].fees(qb["ask"], 1.0, "taker"),
-                days_to_resolution=max(
-                    self._days_to_resolution(mkt_a, now),
-                    self._days_to_resolution(mkt_b, now),
-                ),
-                basis_risk_flag=self._basis_flag(link, mkt_a, mkt_b),
-            )
-            r = compute_edge(inp, rate)
+            days = max(self._days_to_resolution(mkt_a, now), self._days_to_resolution(mkt_b, now))
+            basis = self._basis_flag(link, mkt_a, mkt_b)
+
+            directions = [(leg_a.buy_outcome, leg_b.buy_outcome)]
+            comp_a, comp_b = _COMPLEMENT.get(leg_a.buy_outcome), _COMPLEMENT.get(leg_b.buy_outcome)
+            if comp_a and comp_b:  # binary -> the mirror direction is also a valid arb
+                directions.append((comp_a, comp_b))
+
+            best = None  # (oid_a, oid_b, EdgeResult) with the highest net edge
+            for out_a, out_b in directions:
+                cand = self._eval_direction(leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate)
+                if cand and (best is None or cand[2].net_edge > best[2].net_edge):
+                    best = cand
+            if best is None:
+                continue  # need a tradable ask on both legs in at least one direction
+
+            oid_a, oid_b, r = best
             self.store.insert_edge_snapshot(
                 EdgeSnapshot(
                     ts=now,

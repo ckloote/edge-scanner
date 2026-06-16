@@ -63,8 +63,8 @@ else:
     event_id = st.selectbox("Event", [e["event_id"] for e in events])
     erows = conn.execute(
         "SELECT ts, gross_edge, net_edge, modeled_fees, lockup_cost, executable_size, "
-        "days_to_resolution, basis_risk_flag FROM edge_snapshot WHERE event_id = ? "
-        "ORDER BY ts",
+        "days_to_resolution, basis_risk_flag, leg_a_outcome_id, leg_b_outcome_id "
+        "FROM edge_snapshot WHERE event_id = ? ORDER BY ts",
         (event_id,),
     ).fetchall()
     edf = pd.DataFrame([dict(r) for r in erows])
@@ -80,6 +80,14 @@ else:
         "basis risk",
         "⚠ flagged" if latest["basis_risk_flag"] else "clean",
         help="A flagged edge is not a clean arb (design doc §6).",
+    )
+    def _leg(oid: str) -> str:  # outcome_id is "venue:venue_market_id:LABEL"
+        parts = oid.split(":")
+        return f"{parts[0]} {parts[-1]}"
+
+    st.caption(
+        f"best direction → buy **{_leg(latest['leg_a_outcome_id'])}** + "
+        f"**{_leg(latest['leg_b_outcome_id'])}**"
     )
     st.caption(
         f"net = gross − fees − lockup · ~{latest['days_to_resolution']:.0f} days to "

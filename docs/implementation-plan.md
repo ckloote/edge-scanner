@@ -137,10 +137,13 @@ cross-venue edge computes end-to-end and renders in the dashboard.
 - **Data-quality note:** Kalshi `close_time` can be a far-future placeholder
   (`can_close_early`); the connector uses `expected_expiration_time` for
   `resolution_time`, so lockup/horizon stay correct (verified on the World Cup markets).
-- **Known limitation:** links are **one-directional** (fixed Kalshi YES + Polymarket NO).
-  Divergences whose profitable side is the reverse (e.g. `fed-sep-hold`, `wc26-usa`) show
-  as negative; catching both sides needs either reverse links or a direction-agnostic
-  edge engine (a worthwhile follow-up).
+- **Direction-agnostic edge engine ✅** (`Scanner._compute_edges`). Each cycle evaluates
+  BOTH arb directions for a link — the encoded pair (A.YES + B.NO) and its mirror
+  (A.NO + B.YES), both of which pay $1 for a binary equivalence — and persists the one
+  with the higher net edge (the chosen `leg_*_outcome_id`s record which). This caught
+  real after-fee edges the fixed-polarity version missed, e.g. `fed-sep-hold` flips to
+  buy-Kalshi-NO + Poly-YES for net **+1.66%** (basis-clean), `wc26-usa` net **+0.48%**.
+  The dashboard shows the chosen direction. Tests in `tests/test_edge_wiring.py`.
 - **Do not** start automated semantic matching (design doc §7).
 
 ## Phase 4 — Calibration study
