@@ -1,0 +1,28 @@
+# systemd unit for the edge-scanner Streamlit dashboard, bound to the LAN so you can
+# view it from another machine. See docs/deploy-pi.md for full setup.
+#
+# Edit User= and WorkingDirectory= to match your checkout. `uv` must be resolvable on
+# systemd's PATH — the deploy guide symlinks it into /usr/local/bin.
+#
+#   sudo cp deploy/dashboard.service /etc/systemd/system/edge-scanner-dashboard.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now edge-scanner-dashboard.service
+#   journalctl -u edge-scanner-dashboard -f
+
+[Unit]
+Description=edge-scanner dashboard (Streamlit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ckloote
+WorkingDirectory=/home/ckloote/edge-scanner
+ExecStart=/usr/bin/env uv run --extra dashboard streamlit run dashboard/app.py \
+  --server.address 0.0.0.0 --server.port 8501 --server.headless true \
+  --browser.gatherUsageStats false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
