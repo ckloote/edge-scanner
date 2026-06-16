@@ -1,28 +1,23 @@
 # Hand-curated cross-venue event links (design doc §4, §7 phase 3).
 #
-# These are CONFIG, not data: edited by hand, version-controlled, in git.
-# Polarity is the subtle bit — "YES" on one venue can be the COMPLEMENT of the
-# other venue's question. Each leg names which outcome you BUY so the edge
-# engine knows the arb pair (buy YES on A + buy NO on B per §6).
-#
-# Phase 0 ships this file empty-but-valid. Hand-curate ~15 near-dated pairs in
-# phase 3 (TBD #2). Bias toward near-dated events: lockup cost is smallest there,
-# the only regime where edges plausibly survive.
+# CONFIG, not data: edited by hand, version-controlled. Polarity is the subtle bit —
+# each leg names which outcome you BUY, so the arb pair (buy YES on A + buy NO on B
+# per §6) is explicit. Bias toward NEAR-DATED events: lockup cost is smallest there.
 
-events: []
-
-# ---------------------------------------------------------------------------
-# Example shape (copy under `events:` and fill in real markets in phase 3):
-#
-# events:
-#   - event_id: fed-cut-june-2026
-#     note: "Verify both resolve on the same FOMC announcement date."
-#     resolution_check: confirmed-equivalent   # or 'suspect' -> forces basis_risk_flag
-#     legs:
-#       - venue: kalshi
-#         venue_market_id: FED-26JUN
-#         buy_outcome: YES        # buy YES here ...
-#       - venue: polymarket
-#         venue_market_id: "0xabc..."
-#         buy_outcome: NO         # ... and NO there = the arb pair
-# ---------------------------------------------------------------------------
+events:
+  # First real cross-venue link. Both legs ask "does the Fed hold rates at the
+  # July 2026 FOMC?" and resolve on the same 2026-07-29 decision, so Kalshi YES
+  # (Fed maintains) pairs with Polymarket NO (not 'no change') as the arb pair.
+  - event_id: fed-hold-jul-2026
+    note: >
+      Kalshi KXFEDDECISION-26JUL-H0 'Fed maintains rate' == Polymarket 'No change in
+      Fed interest rates after the July 2026 meeting'. Both resolve on the 2026-07-29
+      FOMC announcement. Verified equivalent on 2026-06-16.
+    resolution_check: confirmed-equivalent
+    legs:
+      - venue: kalshi
+        venue_market_id: KXFEDDECISION-26JUL-H0
+        buy_outcome: "YES"      # buy YES (Fed holds) on Kalshi ... (quote it: YAML reads YES as a bool)
+      - venue: polymarket
+        venue_market_id: "0x8bf1c1536ecb1c08fe13c6b71e8ab1f58bf3461c4cb79f5f1679f869a06aef86"
+        buy_outcome: "NO"       # ... and NO (not 'no change') on Polymarket = the arb pair

@@ -169,6 +169,17 @@ class Store:
 
     # --- reads (dashboard) ----------------------------------------------
 
+    def get_market(self, market_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM market WHERE market_id = ?", (market_id,)
+        ).fetchone()
+
+    def latest_quote(self, outcome_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM quote WHERE outcome_id = ? ORDER BY ts DESC LIMIT 1",
+            (outcome_id,),
+        ).fetchone()
+
     def quote_history(self, outcome_id: str) -> list[sqlite3.Row]:
         cur = self.conn.execute(
             "SELECT ts, bid, ask, bid_size, ask_size, last FROM quote "

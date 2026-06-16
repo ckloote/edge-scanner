@@ -60,6 +60,8 @@ def test_load_links_parses_two_leg_event(tmp_path):
     assert link.event_id == "fed-cut-june-2026"
     assert link.is_suspect is False
     assert [leg.venue for leg in link.legs] == ["kalshi", "polymarket"]
+    # YAML reads unquoted YES/NO as booleans; the loader must normalize them back.
+    assert [leg.buy_outcome for leg in link.legs] == ["YES", "NO"]
 
 
 def test_load_links_rejects_non_two_leg(tmp_path):

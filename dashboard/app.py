@@ -49,6 +49,44 @@ cols = st.columns(4)
 for col, table in zip(cols, ("market", "outcome", "quote", "edge_snapshot")):
     col.metric(table, _count(conn, table))
 
+# --- Cross-venue edges (the research output, design doc §6) ---------------
+st.subheader("Cross-venue edges")
+events = conn.execute(
+    "SELECT DISTINCT event_id FROM edge_snapshot ORDER BY event_id"
+).fetchall()
+if not events:
+    st.info(
+        "No edges computed yet — needs a curated link with a tradable ask on both legs "
+        "(see config/links.yaml)."
+    )
+else:
+    event_id = st.selectbox("Event", [e["event_id"] for e in events])
+    erows = conn.execute(
+        "SELECT ts, gross_edge, net_edge, modeled_fees, lockup_cost, executable_size, "
+        "days_to_resolution, basis_risk_flag FROM edge_snapshot WHERE event_id = ? "
+        "ORDER BY ts",
+        (event_id,),
+    ).fetchall()
+    edf = pd.DataFrame([dict(r) for r in erows])
+    edf["ts"] = pd.to_datetime(edf["ts"], format="ISO8601")
+    latest = erows[-1]
+
+    m = st.columns(5)
+    m[0].metric("gross edge", f"{latest['gross_edge']:+.4f}")
+    m[1].metric("net edge", f"{latest['net_edge']:+.4f}")
+    m[2].metric("modeled fees", f"{latest['modeled_fees']:.4f}")
+    m[3].metric("exec size", f"{latest['executable_size']:.0f}")
+    m[4].metric(
+        "basis risk",
+        "⚠ flagged" if latest["basis_risk_flag"] else "clean",
+        help="A flagged edge is not a clean arb (design doc §6).",
+    )
+    st.caption(
+        f"net = gross − fees − lockup · ~{latest['days_to_resolution']:.0f} days to "
+        f"resolution · lockup {latest['lockup_cost']:.4f}"
+    )
+    st.line_chart(edf.set_index("ts")[["gross_edge", "net_edge"]])
+
 # --- Price history -------------------------------------------------------
 st.subheader("Price history")
 

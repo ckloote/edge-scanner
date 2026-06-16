@@ -63,6 +63,20 @@ class Settings:
         )
 
 
+def _norm_outcome(raw) -> str:
+    """Normalize a leg's buy_outcome.
+
+    YAML 1.1 parses unquoted YES/NO as booleans, so `buy_outcome: YES` arrives as
+    True. Coerce bools and case-insensitive yes/no to canonical 'YES'/'NO'; leave any
+    other label (multi-outcome option text) untouched.
+    """
+    if isinstance(raw, bool):
+        return "YES" if raw else "NO"
+    if str(raw).strip().lower() in ("yes", "no"):
+        return str(raw).strip().upper()
+    return str(raw)
+
+
 def load_links(path: Path | str = DEFAULT_LINKS_PATH) -> list[EventLink]:
     """Parse and validate hand-curated event links (design doc §4)."""
     path = Path(path)
@@ -82,7 +96,7 @@ def load_links(path: Path | str = DEFAULT_LINKS_PATH) -> list[EventLink]:
             Leg(
                 venue=leg["venue"],
                 venue_market_id=str(leg["venue_market_id"]),
-                buy_outcome=leg["buy_outcome"],
+                buy_outcome=_norm_outcome(leg["buy_outcome"]),
             )
             for leg in entry.get("legs", [])
         ]

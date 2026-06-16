@@ -1,10 +1,9 @@
 """Scanner daemon: async poll -> normalize -> compute edges -> write SQLite.
 
-Phase 0 contract (design doc §7): boots, initializes the schema, loads links and
-connectors, runs the poll loop, and restarts cleanly. It writes nothing useful yet
-because the connector read paths are phase-1/3 seams — the loop catches their
-NotImplementedError per venue so one unimplemented (or flaky) venue never stalls
-the others (design doc §9 reliability).
+Each cycle: sync metadata (once/periodic), poll every venue's curated set with
+per-venue isolation (one bad or unimplemented venue never stalls the others — design
+doc §9), then compute the §6 cross-venue edge for each linked event from the latest
+quotes and persist an `edge_snapshot`. Boots and restarts cleanly under systemd.
 """
 
 from __future__ import annotations
@@ -13,11 +12,16 @@ import asyncio
 import logging
 import signal
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from .config import Settings, load_links
 from .connectors.base import build_connectors
-from .models import EventLink
+from .edge import EdgeInputs, compute_edge, days_between
+from .models import EdgeSnapshot, EventLink, make_market_id, make_outcome_id
 from .store import Store
+
+# Resolution times closer than this are treated as the same date (basis-risk check).
+BASIS_TIME_TOLERANCE_S = 86400.0
 
 log = logging.getLogger("scanner")
 
@@ -98,6 +102,87 @@ class Scanner:
         await asyncio.gather(
             *(self._poll_venue(v, ids) for v, ids in self.targets.items())
         )
+        try:
+            self._compute_edges()
+        except Exception:  # noqa: BLE001 - never let edge math kill the poll loop
+            log.warning("edge computation failed this cycle", exc_info=True)
+
+    # --- edge engine (design doc §6) ------------------------------------
+
+    def _days_to_resolution(self, market_row, now: datetime) -> float:
+        if market_row is None:
+            return 0.0
+        rt = market_row["resolution_time"] or market_row["close_time"]
+        return days_between(now, datetime.fromisoformat(rt)) if rt else 0.0
+
+    @staticmethod
+    def _basis_flag(link: EventLink, mkt_a, mkt_b) -> int:
+        """1 when the legs may NOT resolve identically (design doc §6).
+
+        A 'suspect' link flags; so does a resolution-time mismatch. Free-text
+        resolution_source is NOT compared for equality — across venues it virtually
+        always differs, which would pin the flag to 1 and make it useless; the curator's
+        `resolution_check` is the source-equivalence signal instead.
+        """
+        if link.is_suspect:
+            return 1
+        ra = mkt_a["resolution_time"] if mkt_a else None
+        rb = mkt_b["resolution_time"] if mkt_b else None
+        if ra and rb:
+            delta = abs(
+                (datetime.fromisoformat(ra) - datetime.fromisoformat(rb)).total_seconds()
+            )
+            if delta > BASIS_TIME_TOLERANCE_S:
+                return 1
+        return 0
+
+    def _compute_edges(self) -> None:
+        """For each linked event, compute the §6 edge from the latest quotes and persist."""
+        now = datetime.now(tz=timezone.utc)
+        rate = self.settings.edge.risk_free_rate
+        for link in self.links:
+            leg_a, leg_b = link.legs
+            mid_a = make_market_id(leg_a.venue, leg_a.venue_market_id)
+            mid_b = make_market_id(leg_b.venue, leg_b.venue_market_id)
+            oid_a = make_outcome_id(mid_a, leg_a.buy_outcome)
+            oid_b = make_outcome_id(mid_b, leg_b.buy_outcome)
+
+            qa = self.store.latest_quote(oid_a)
+            qb = self.store.latest_quote(oid_b)
+            if not qa or not qb or qa["ask"] is None or qb["ask"] is None:
+                continue  # need a tradable ask on both legs
+
+            mkt_a = self.store.get_market(mid_a)
+            mkt_b = self.store.get_market(mid_b)
+            inp = EdgeInputs(
+                ask_a=qa["ask"],
+                ask_b=qb["ask"],
+                ask_size_a=qa["ask_size"] or 0.0,
+                ask_size_b=qb["ask_size"] or 0.0,
+                fee_a=self.connectors[leg_a.venue].fees(qa["ask"], 1.0, "taker"),
+                fee_b=self.connectors[leg_b.venue].fees(qb["ask"], 1.0, "taker"),
+                days_to_resolution=max(
+                    self._days_to_resolution(mkt_a, now),
+                    self._days_to_resolution(mkt_b, now),
+                ),
+                basis_risk_flag=self._basis_flag(link, mkt_a, mkt_b),
+            )
+            r = compute_edge(inp, rate)
+            self.store.insert_edge_snapshot(
+                EdgeSnapshot(
+                    ts=now,
+                    event_id=link.event_id,
+                    leg_a_outcome_id=oid_a,
+                    leg_b_outcome_id=oid_b,
+                    gross_edge=r.gross_edge,
+                    modeled_fees=r.modeled_fees,
+                    lockup_cost=r.lockup_cost,
+                    net_edge=r.net_edge,
+                    executable_size=r.executable_size,
+                    days_to_resolution=r.days_to_resolution,
+                    basis_risk_flag=r.basis_risk_flag,
+                )
+            )
 
     async def run(self) -> None:
         interval = self.settings.scanner.poll_interval_seconds

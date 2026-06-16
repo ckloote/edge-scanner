@@ -17,16 +17,16 @@ the frequency and duration of real edges can be measured.
 
 ## Status
 
-**Phase 3 (add real venues) — in progress.** The `scanner` daemon boots, syncs
-market/outcome metadata for the curated markets, polls each cycle, and writes
-normalized quotes into SQLite (WAL); the dashboard renders a per-outcome
-price-history chart. **Manifold** (AMM probabilities) and **Kalshi** (dollar-string
-top-of-book with book sizes) read paths are implemented and verified live;
-**Polymarket** remains a documented seam. Every venue's `fees()` method is fully
-implemented and unit-tested.
+**Phase 3 (add real venues) — core complete.** All three connectors (**Manifold**
+AMM probabilities, **Kalshi** dollar-string top-of-book, **Polymarket** Gamma + CLOB)
+are implemented and verified live. Each cycle the daemon polls the curated set,
+writes normalized quotes, and computes the §6 cross-venue edge per linked event into
+`edge_snapshot`. The dashboard renders both the per-outcome price history and a
+**net-edge-over-time** view (with the basis-risk flag broken out). One real link is
+curated (`fed-hold-jul-2026`); curating the rest of the ~15 is what's left.
 
 Phases (see the design doc §7): **0** scaffold ✅ → **1** Manifold end-to-end ✅ →
-**2** within-platform arb + paper execution → **3** add Kalshi ✅ / Polymarket +
+**2** within-platform arb + paper execution → **3** add Kalshi ✅ / Polymarket ✅ +
 curate ~15 links → **4** multi-week calibration study.
 
 ## How it works

@@ -107,22 +107,31 @@ produced market/outcome/quote rows with YES+NO summing to 1.0 and timestamped hi
   harness mirrors the real interface.
 - Tests: arb detection on synthetic books.
 
-## Phase 3 — Add real venues (read-only) — in progress
+## Phase 3 — Add real venues (read-only) ✅ (core complete)
 
 > **Done when:** live quotes for all three venues flow into `quote`.
 
-- **Kalshi connector ✅** (`scanner/connectors/kalshi.py`). Top-of-book comes entirely
-  from one batched `GET /markets?tickers=` call: prices are dollar strings in [0,1];
-  the book is **bids-only**, so NO bid == YES ask orders and NO sizes derive from
-  `yes_bid_size_fp`/`yes_ask_size_fp` (no per-market orderbook call needed). Public,
-  no auth. Verified live: complement identities hold (YES ask + NO bid == 1) and book
-  sizes flow through. Tests in `tests/test_kalshi.py` (recorded fixtures + MockTransport).
-- **Polymarket connector** — still a seam. Gamma discovery → `json.loads` clobTokenIds;
-  CLOB `/book` for depth. Public, no auth.
-- Hand-curate ~15 **near-dated** links in `config/links.yaml` (TBD #2); encode
-  polarity per leg (`buy_outcome`).
-- Compute and persist `edge_snapshot` per link per cycle via `scanner/edge.py`; set
-  `basis_risk_flag` from resolution-source/time mismatch or a `suspect` link.
+All three connectors are implemented and verified live, and the first real
+cross-venue edge computes end-to-end and renders in the dashboard.
+
+- **Kalshi connector ✅** (`scanner/connectors/kalshi.py`). Top-of-book from one batched
+  `GET /markets?tickers=` call: dollar-string prices in [0,1]; book is **bids-only**, so
+  NO bid == YES ask orders and NO sizes derive from `yes_bid_size_fp`/`yes_ask_size_fp`.
+- **Polymarket connector ✅** (`scanner/connectors/polymarket.py`). Gamma
+  `GET /markets?condition_ids=` (clobTokenIds/outcomes are JSON-encoded strings) →
+  CLOB `GET /book?token_id=` per YES/NO token; best bid = max price, best ask = min price.
+- **Edge wiring ✅** (`Scanner._compute_edges`). Each cycle, after polling, the §6 edge
+  is computed from the latest quotes per linked event and persisted to `edge_snapshot`.
+  `basis_risk_flag` = 1 on a `suspect` link or a resolution-time mismatch (free-text
+  `resolution_source` is **not** compared — it virtually always differs across venues, so
+  the curator's `resolution_check` is the source-equivalence signal). Tests in
+  `tests/test_edge_wiring.py`.
+- **First real link curated** (`config/links.yaml`): `fed-hold-jul-2026` — Kalshi
+  `KXFEDDECISION-26JUL-H0` YES ≡ Polymarket "No change" NO, both resolving 2026-07-29.
+  Live result: gross ≈ 0, net ≈ −0.013 after fees + lockup (an honest no-arb).
+- **Gotcha fixed:** YAML 1.1 reads unquoted `YES`/`NO` as booleans — the links loader now
+  normalizes `buy_outcome` (`scanner/config._norm_outcome`).
+- Curating the rest of the ~15 near-dated links (TBD #2) is the remaining phase-3 work.
 - **Do not** start automated semantic matching (design doc §7).
 
 ## Phase 4 — Calibration study
