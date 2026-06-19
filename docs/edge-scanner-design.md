@@ -325,3 +325,102 @@ fee = 0.0625 × P × (1 − P)                 # taker, and only on a subset of 
 
 ### Suggested handoff prompt
 > "Here's a design doc for a read-only cross-venue prediction market edge scanner. Produce an implementation plan and scaffold phase 0, following the doc's architecture, schema, and phasing. **Before writing any connector, fetch and read the current Manifold, Kalshi, and Polymarket API docs and derive endpoints, auth, and the exact fee formulas from them** — the doc's fee formulas are a starting point to verify, not gospel. Write a unit test per venue `fees()` method. Flag anything in the doc the live API contradicts."
+
+---
+
+## 11. Phase 5 — Sportsbooks & sports exchanges (future)
+
+**Goal:** extend the canonical schema to traditional sportsbooks and US sports exchanges, to (a) measure how often and how far prediction-market lines diverge from book/exchange consensus on shared events, and (b) open execution against *exchanges* — not books.
+
+### Venue taxonomy — this distinction drives the whole design
+Two structural classes, **not** interchangeable:
+
+| | **Exchange** (Kalshi, Polymarket, Sporttrade, Novig, ProphetX) | **Book** (FanDuel, DraftKings, BetMGM, Caesars) |
+|---|---|---|
+| Sides | Two-sided: back *and* lay / opposite | One-sided: back only |
+| Price | ~Sums to $1; vig-free or low commission | Vig baked in; implied probs sum > 100% |
+| Fee | Explicit commission → model like Kalshi | Vig *is* the fee, embedded in price → `fees()` = 0 |
+| Winners | Wants volume; **no limiting** | **Limits / closes** sharp & arb accounts |
+| Role | Execution-capable | Reference / data only |
+
+Consequence: **a book can never be a standalone hedge leg.** Any locked position needs the opposite side from an exchange/PM.
+
+### Data access
+No major US book has a public API. Route through one odds aggregator (The Odds API — free tier, ~40 soft books, no Pinnacle; SportsGameOdds / OddsJam / OpticOdds / OddsPapi — paid, deeper, some already carry Polymarket and ProphetX). Exchange APIs (Sporttrade / Novig / ProphetX) are mostly closed / partner-only, so they also arrive via aggregator for now. Add **one `OddsAggregatorConnector`**, not per-book integrations.
+
+### New modeling pieces
+1. **Ask-only quote variant.** A book outcome is a single back price with a stake ceiling, not a two-sided book. Extend `Quote` to represent back-only price + max stake; leave `bid` null for books.
+2. **Odds normalization.** American / decimal / fractional → implied probability → `[0,1]` price. Keep *both* the raw (vig-loaded) price for actual-cost math **and** a de-vigged fair probability (proportional or Shin) for the +EV / divergence view.
+3. **Fee model.** Books: `fees()` = 0 (cost is in the price). Exchanges: explicit commission (Novig ~1–4% spread; Prophet commission on net winnings) modeled like Kalshi.
+4. **Resolution / basis risk.** Sports resolve cleaner than political markets, but futures ("win the championship") carry huge whole-field vig (20–40%), so genuine cross-venue arb on futures is rare — expect a "PM/exchange sharper than soft book" +EV signal, not risk-free arb.
+
+### Bounding caveat
+Execution against books is structurally self-defeating — systematic winners get limited within days/weeks. Durable execution venues are the *exchanges*; books are for measurement and for the Phase 6 promo engine.
+
+---
+
+## 12. Phase 6 — Promo / matched-betting engine (future)
+
+The one sportsbook-world edge that books *tolerate* (it's their customer-acquisition cost) and that doesn't depend on latency.
+
+**Concept.** Place a qualifying bet at a book to claim a promo (first-bet safety net, bet-&-get, deposit match, profit boost), hedge the opposite outcome on an exchange/PM, lock in a fraction of the bonus regardless of result. Legal wherever online betting is legal (incl. Indiana) — promos used as intended.
+
+**Core math nuance — bonus bets are stake-not-returned (SNR).** A "$100 free bet" pays winnings *minus* stake, so it's worth ~70–80% of face, extracted by placing it at higher odds and hedging. Two stages per promo:
+- *Qualifying stage:* place qualifying bet, hedge on exchange → small known "qualifying loss."
+- *Free-bet stage:* bet the bonus, hedge on exchange → lock ~70–80% of face.
+- Net edge ≈ `(bonus_value × conversion_rate) − qualifying_loss − hedge_costs`.
+
+**This is a calculator, not a scanner.** Promos are published; the math is deterministic given current odds + exchange lay price + commission. No real-time race. The tool:
+1. ingests book odds (aggregator) + exchange lay price (exchange connector);
+2. computes optimal back/lay stakes to equalize outcomes (the classic matched-betting calculator);
+3. outputs: back $X at book, lay $Y on exchange, locked profit $Z, conversion %;
+4. tracks claimed promos, expiries, wagering/rollover requirements, and per-book account health (longevity).
+
+**2026 reality + bounds.** Tighter than its UK heyday — books detect promo abusers faster and trim bonuses — but the math is unchanged and still profitable for the disciplined. It's bounded (welcome offers run out; then you live on reloads/boosts), and longevity tactics matter (vary bet types, occasional "mug" bets, don't bet *only* promos). Exchanges are the ideal hedge leg precisely because they don't limit you and let you withdraw freely.
+
+### Calculator spec (build-ready)
+
+All odds in **decimal**. Convert American at the connector boundary: `dec = 1 + american/100` if `american > 0` else `1 − 100/american`. `c` = exchange commission as a decimal on net lay winnings (e.g., `0.02`). `B_o`/`L_o` = back/lay decimal odds; `S` = back stake.
+
+**Two formulas, selected by bet type:**
+
+```python
+def lay_stake(back_stake, back_odds, lay_odds, commission, free_bet=False):
+    """Lay stake that equalizes profit across both outcomes."""
+    if free_bet:   # stake-not-returned: drop the stake term (use back_odds - 1)
+        return (back_stake * (back_odds - 1)) / (lay_odds - commission)
+    else:          # stake-returned: normal qualifying / arb bet
+        return (back_stake * back_odds) / (lay_odds - commission)
+
+def locked_profit(back_stake, back_odds, lay_odds, commission, free_bet=False):
+    """Guaranteed profit (≈ equal on both outcomes). Negative = qualifying loss."""
+    L = lay_stake(back_stake, back_odds, lay_odds, commission, free_bet)
+    liability = L * (lay_odds - 1)
+    if free_bet:
+        book_win   = back_stake * (back_odds - 1) - liability      # bonus pays winnings only
+        book_lose  = L * (1 - commission)                          # free bet expires worthless
+    else:
+        book_win   = back_stake * (back_odds - 1) - liability
+        book_lose  = L * (1 - commission) - back_stake
+    return min(book_win, book_lose)        # report the worst leg as the guaranteed lock
+```
+
+**Derived metrics the tool reports per opportunity:**
+- `conversion_rate = locked_profit / bonus_value` (free-bet stage). Before costs this is `(B_o − 1)/B_o` — the lever that rises with chosen odds.
+- `required_liability = lay_stake × (L_o − 1)` — the exchange balance this ties up. **This, not the promo, is usually the binding constraint.**
+- `qualifying_loss` — the (negative) `locked_profit` from the stake-returned stage.
+- `net_promo_value = free_bet_locked − qualifying_loss`.
+
+**Inputs per promo (model as a `Promo` record):**
+- `promo_type`: `safety_net | bet_and_get | deposit_match | profit_boost` — drives which stages run and whether the refund is cash or SNR bonus.
+- `bonus_value`, `qualifying_stake_required`, `min_odds_required` (qualifying bets often must clear e.g. −200 / 1.50), `bonus_increment` (e.g. 8 × $25), `expiry`, `rollover` / playthrough multiple if any.
+
+**Optimizer + guardrails:**
+1. Default convert free bets in the **3.0–4.5 (+200 to +350)** band — past there, conversion gains flatten while `required_liability` keeps climbing (see the conversion table). Let the band be a config range, then pick the highest-conversion point whose `required_liability ≤ available_exchange_balance`.
+2. **Depth/fill check:** confirm the exchange book has size at the lay price for the full `lay_stake`; on thin state-siloed liquidity, flag partial-fill risk and recompute the realistic lock at the fillable size.
+3. **Price-staleness guard:** re-fetch both legs immediately before output; if either moved beyond a tolerance, recompute rather than show a stale lock.
+4. **Account-health flag:** track per-book promo count and whether conversions cluster at max-odds longshots (a promo-abuse fingerprint); surface a longevity warning.
+
+**Output row:** `book`, `back $S @ B_o`, `exchange lay $L @ L_o`, `required_liability`, `locked_profit`, `conversion_rate`, `partial_fill_flag`, `expiry`.
+
+This whole engine is the two functions above plus a `Promo` record and a depth check — it reuses the Phase 5 `OddsAggregatorConnector` (book odds) and the exchange connectors (lay prices). No new infrastructure.
