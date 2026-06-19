@@ -70,7 +70,9 @@ def test_status_mapping():
 
 
 def test_url_best_effort():
-    assert kalshi_url("KXSAMPLE-26JUN") == "https://kalshi.com/markets/KXSAMPLE-26JUN"
+    # series-ticker (event ticker before first '-'), lowercased -> the live web path
+    assert kalshi_url("KXFEDDECISION-26JUL") == "https://kalshi.com/markets/kxfeddecision"
+    assert kalshi_url("KXSAMPLE-26JUN") == "https://kalshi.com/markets/kxsample"
     assert kalshi_url(None) is None
 
 
@@ -82,7 +84,7 @@ def test_build_market():
     assert m.status == "open"
     assert m.close_time == datetime(2026, 6, 29, 12, 50, tzinfo=timezone.utc)
     assert m.resolution_source == "Resolves YES if the sample condition is met."
-    assert m.url == "https://kalshi.com/markets/KXSAMPLE-26JUN"
+    assert m.url == "https://kalshi.com/markets/kxsample"
     assert [o.label for o in m.outcomes] == ["YES", "NO"]
     assert m.outcomes[0].outcome_id == "kalshi:KXSAMPLE-26JUN-T1:YES"
 

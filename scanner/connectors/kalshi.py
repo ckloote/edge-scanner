@@ -68,8 +68,19 @@ def kalshi_status(market: dict) -> str:
 
 
 def kalshi_url(event_ticker: str | None) -> str | None:
-    """Best-effort web link (Kalshi returns no canonical url field)."""
-    return f"https://kalshi.com/markets/{event_ticker}" if event_ticker else None
+    """Best-effort web link (Kalshi returns no canonical url field).
+
+    Kalshi's web path is ``/markets/{series-ticker-lowercased}[/{slug}/{event}]``.
+    The API market object carries no ``series_ticker``, but the series is the event
+    ticker up to the first ``-`` (``KXFEDDECISION-26JUL`` -> ``kxfeddecision``). We
+    link to that bare-series page (which lists the dated markets); the deeper
+    ``/{slug}/{event}`` segment isn't derivable from the API. The old form linked the
+    uppercase *event* ticker, which Kalshi no longer routes (dead link).
+    """
+    if not event_ticker:
+        return None
+    series = event_ticker.split("-", 1)[0].lower()
+    return f"https://kalshi.com/markets/{series}"
 
 
 def build_market(market: dict) -> Market:
