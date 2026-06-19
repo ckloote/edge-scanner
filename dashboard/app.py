@@ -1,8 +1,9 @@
 """Streamlit dashboard (design doc §3) — reads SQLite (WAL) directly, no write path.
 
-Phase 1: counts + canonical tables, plus a per-outcome **price-history chart**
-(the phase-1 "done when": a real Manifold market's price history renders here).
-The edge-over-time view (phase 4) attaches to the same read-only connection.
+Surfaces the research output: cross-venue edges per linked event (with the
+positive-net ones called out and a net-edge-over-time chart), the Manifold
+within-platform paper trades, per-outcome price history, and the markets table.
+All views attach to one read-only connection, concurrent with the daemon's writes.
 
 Run:  uv run --extra dashboard streamlit run dashboard/app.py
 """
@@ -37,7 +38,10 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
 
 
 st.title("Cross-venue edge scanner")
-st.caption("Phase 1 — Manifold end-to-end. Read-only study harness; zero real-money risk.")
+st.caption(
+    "Cross-venue edges (Manifold / Kalshi / Polymarket) + Manifold within-platform arb. "
+    "Read-only study harness; zero real-money risk."
+)
 
 try:
     conn = _connect()
@@ -60,7 +64,47 @@ if not events:
         "(see config/links.yaml)."
     )
 else:
-    event_id = st.selectbox("Event", [e["event_id"] for e in events])
+    # --- Overview: latest snapshot per event, positives called out ---------
+    # Same "latest row per event" shape as scripts/report.py, so the dashboard
+    # and the SSH report agree on what's positive right now.
+    summary = conn.execute(
+        "SELECT e.event_id, e.net_edge, e.gross_edge, e.executable_size, "
+        "       e.days_to_resolution, e.basis_risk_flag "
+        "FROM edge_snapshot e "
+        "JOIN (SELECT event_id, MAX(ts) mt FROM edge_snapshot GROUP BY event_id) l "
+        "  ON e.event_id = l.event_id AND e.ts = l.mt "
+        "ORDER BY e.net_edge DESC"
+    ).fetchall()
+    positives = [r for r in summary if r["net_edge"] > 0]
+    if positives:
+        names = ", ".join(r["event_id"] for r in positives)
+        st.success(f"**{len(positives)} positive-net event(s) right now:** {names}")
+        flagged = [r["event_id"] for r in positives if r["basis_risk_flag"]]
+        if flagged:
+            st.caption(
+                "⚠ " + ", ".join(flagged) + " carry a basis-risk flag — not a clean arb."
+            )
+    else:
+        st.caption("No positive-net edges right now.")
+
+    sdf = pd.DataFrame(
+        [
+            {
+                "": "🟢" if r["net_edge"] > 0 else "",
+                "event": r["event_id"],
+                "net": f"{r['net_edge']:+.4f}",
+                "gross": f"{r['gross_edge']:+.4f}",
+                "exec": f"{r['executable_size']:.0f}",
+                "days": f"{r['days_to_resolution']:.0f}",
+                "basis": "⚠" if r["basis_risk_flag"] else "—",
+            }
+            for r in summary
+        ]
+    )
+    st.dataframe(sdf, width="stretch", hide_index=True)
+
+    # --- Per-event detail --------------------------------------------------
+    event_id = st.selectbox("Event", [r["event_id"] for r in summary])
     erows = conn.execute(
         "SELECT ts, gross_edge, net_edge, modeled_fees, lockup_cost, executable_size, "
         "days_to_resolution, basis_risk_flag, leg_a_outcome_id, leg_b_outcome_id "
@@ -73,7 +117,12 @@ else:
 
     m = st.columns(5)
     m[0].metric("gross edge", f"{latest['gross_edge']:+.4f}")
-    m[1].metric("net edge", f"{latest['net_edge']:+.4f}")
+    # delta carries the sign-coloring (green when positive, red when negative).
+    m[1].metric(
+        "net edge",
+        f"{latest['net_edge']:+.4f}",
+        delta=f"{latest['net_edge'] * 100:+.2f}%",
+    )
     m[2].metric("modeled fees", f"{latest['modeled_fees']:.4f}")
     m[3].metric("exec size", f"{latest['executable_size']:.0f}")
     m[4].metric(
