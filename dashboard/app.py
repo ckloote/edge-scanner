@@ -130,13 +130,24 @@ else:
         "⚠ flagged" if latest["basis_risk_flag"] else "clean",
         help="A flagged edge is not a clean arb (design doc §6).",
     )
-    def _leg(oid: str) -> str:  # outcome_id is "venue:venue_market_id:LABEL"
-        parts = oid.split(":")
-        return f"{parts[0]} {parts[-1]}"
+    def _leg_line(oid: str) -> str:
+        # outcome_id is "venue:venue_market_id:LABEL"; market_id drops the label.
+        market_id, _, label = oid.rpartition(":")
+        venue = market_id.split(":", 1)[0]
+        row = conn.execute(
+            "SELECT title, url FROM market WHERE market_id = ?", (market_id,)
+        ).fetchone()
+        title = row["title"] if row else market_id
+        link = f" [↗]({row['url']})" if row and row["url"] else ""
+        return f"- **{venue}** — buy **{label}** — {title}{link}"
 
-    st.caption(
-        f"best direction → buy **{_leg(latest['leg_a_outcome_id'])}** + "
-        f"**{_leg(latest['leg_b_outcome_id'])}**"
+    # The two markets being compared (best direction's legs), with click-through —
+    # so you don't have to hunt for them in the Markets table below.
+    st.markdown(
+        "Markets compared:\n\n"
+        + _leg_line(latest["leg_a_outcome_id"])
+        + "\n"
+        + _leg_line(latest["leg_b_outcome_id"])
     )
     st.caption(
         f"net = gross − fees − lockup · ~{latest['days_to_resolution']:.0f} days to "
