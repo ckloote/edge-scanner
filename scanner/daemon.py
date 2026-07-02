@@ -57,8 +57,8 @@ class Scanner:
         self.links = links
         self.store = Store(settings.scanner.db_path)
         self.connectors = build_connectors(settings.venues)
-        self.targets = _venue_market_ids(links)
         self._stop = asyncio.Event()
+        self._retired: set[str] = set()  # event_ids logged as retired (log-once)
         self._backoff: dict[str, float] = defaultdict(lambda: BACKOFF_BASE)
         self._meta_synced: set[str] = set()
         self._cycle_count = 0
@@ -71,6 +71,33 @@ class Scanner:
 
     def request_stop(self) -> None:
         self._stop.set()
+
+    def _live_links(self) -> list[EventLink]:
+        """Links whose markets are all unresolved — the auto-retire guard.
+
+        A resolved leg ends the pair: the outcome is known, so any residual
+        "edge" against the other leg is junk (a resolved Kalshi market keeps
+        quoting $1.00 asks at zero size, which reads as a plausible small
+        negative edge). Retired links stop being polled and computed; their
+        history stays in the DB. Status comes from the market table, refreshed
+        by the periodic metadata re-sync; markets not yet synced count as live."""
+        live: list[EventLink] = []
+        for link in self.links:
+            resolved = None
+            for leg in link.legs:
+                row = self.store.get_market(make_market_id(leg.venue, leg.venue_market_id))
+                if row is not None and row["status"] == "resolved":
+                    resolved = leg
+                    break
+            if resolved is None:
+                live.append(link)
+            elif link.event_id not in self._retired:
+                self._retired.add(link.event_id)
+                log.info(
+                    "link %s retired: %s:%s is resolved — stopping its polling and edges",
+                    link.event_id, resolved.venue, resolved.venue_market_id,
+                )
+        return live
 
     async def _sync_metadata(self, venue: str, ids: list[str]) -> None:
         """Upsert market + outcome rows for the curated set (needed before quotes:
@@ -115,12 +142,14 @@ class Scanner:
         if self._cycle_count and self._cycle_count % META_REFRESH_CYCLES == 0:
             self._meta_synced.clear()  # force a metadata re-sync this cycle
         self._cycle_count += 1
-        if self.targets:
+        live = self._live_links()
+        targets = _venue_market_ids(live)
+        if targets:
             await asyncio.gather(
-                *(self._poll_venue(v, ids) for v, ids in self.targets.items())
+                *(self._poll_venue(v, ids) for v, ids in targets.items())
             )
             try:
-                self._compute_edges()
+                self._compute_edges(live)
             except Exception:  # noqa: BLE001 - never let edge math kill the poll loop
                 log.warning("edge computation failed this cycle", exc_info=True)
         try:
@@ -197,16 +226,19 @@ class Scanner:
         )
         return oid_a, oid_b, compute_edge(inp, rate)
 
-    def _compute_edges(self) -> None:
+    def _compute_edges(self, links: list[EventLink] | None = None) -> None:
         """For each linked event, evaluate BOTH arb directions from the latest quotes
         and persist the more profitable one (design doc §6, direction-agnostic).
 
         The mirror direction (buy the complement outcome on each leg) is just as valid
         an arb for a binary equivalence, so a divergence is captured whichever way it
-        leans — what the §1 frequency/duration question actually needs."""
+        leans — what the §1 frequency/duration question actually needs. `links`
+        defaults to the live (unretired) set."""
+        if links is None:
+            links = self._live_links()
         now = datetime.now(tz=timezone.utc)
         rate = self.settings.edge.risk_free_rate
-        for link in self.links:
+        for link in links:
             leg_a, leg_b = link.legs
             mid_a = make_market_id(leg_a.venue, leg_a.venue_market_id)
             mid_b = make_market_id(leg_b.venue, leg_b.venue_market_id)

@@ -102,6 +102,46 @@ def test_compute_edges_skips_when_a_leg_has_no_ask(tmp_path):
     sc.store.close()
 
 
+def test_retired_link_stops_polling_and_edges(tmp_path):
+    """A link with a resolved leg drops out of the live set and gains no edge rows;
+    its history stays put (auto-retire guard)."""
+    res = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    link = EventLink(
+        event_id="retiree",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+        resolution_check="confirmed-equivalent",
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    now = datetime.now(tz=timezone.utc)
+    kalshi_mkt = _seed_leg(sc.store, "kalshi", "KT", 0.93, 100, res)
+    _seed_leg(sc.store, "polymarket", "0xPC", 0.07, 300, res)
+    sc.store.insert_quote(Quote(ts=now, outcome_id="kalshi:KT:YES", ask=0.93, ask_size=100))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:NO", ask=0.07, ask_size=300))
+
+    assert [lk.event_id for lk in sc._live_links()] == ["retiree"]
+    sc._compute_edges()
+    assert len(sc.store.edge_history("retiree")) == 1
+
+    kalshi_mkt.status = "resolved"  # the venue finalized this market
+    sc.store.upsert_market(kalshi_mkt)
+    assert sc._live_links() == []
+    sc._compute_edges()  # default path must apply the guard too
+    assert len(sc.store.edge_history("retiree")) == 1  # no new rows
+    sc.store.close()
+
+
+def test_unsynced_markets_count_as_live(tmp_path):
+    """Before the first metadata sync there are no market rows — the link must
+    still be polled (retiring on ignorance would kill every link at boot)."""
+    link = EventLink(
+        event_id="fresh",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    assert [lk.event_id for lk in sc._live_links()] == ["fresh"]
+    sc.store.close()
+
+
 def test_basis_flag():
     t = "2026-07-29T00:00:00+00:00"
     t_far = "2026-08-15T00:00:00+00:00"

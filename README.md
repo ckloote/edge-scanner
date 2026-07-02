@@ -78,6 +78,8 @@ uv sync          # creates .venv and installs deps + the dev group
 ```bash
 uv run edge-scanner                                       # boot the scanner daemon (Ctrl-C to stop)
 uv run --extra dashboard streamlit run dashboard/app.py   # dashboard (installs streamlit/pandas on demand)
+uv run python scripts/analyze.py                          # phase-4 report: edge-window frequency + duration
+uv run python scripts/curate.py                           # suggest new near-dated links (you verify + paste)
 uv run pytest                                             # run the test suite
 uv run ruff check .                                       # lint
 ```
