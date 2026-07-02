@@ -17,13 +17,16 @@ the frequency and duration of real edges can be measured.
 
 ## Status
 
-**Phase 3 (add real venues) — core complete.** All three connectors (**Manifold**
+**Phase 4 (calibration study) — running.** All three connectors (**Manifold**
 AMM probabilities, **Kalshi** dollar-string top-of-book, **Polymarket** Gamma + CLOB)
 are implemented and verified live. Each cycle the daemon polls the curated set,
 writes normalized quotes, and computes the §6 cross-venue edge per linked event into
 `edge_snapshot`. The dashboard renders both the per-outcome price history and a
-**net-edge-over-time** view (with the basis-risk flag broken out). One real link is
-curated (`fed-hold-jul-2026`); curating the rest of the ~15 is what's left.
+**net-edge-over-time** view (with the basis-risk flag broken out). 14 links are
+curated in `config/links.yaml` (6 Fed-decision outcomes + 8 World Cup winners, all
+Kalshi↔Polymarket), and the study has been collecting on a Raspberry Pi since
+2026-06-18. As near-dated links resolve (World Cup ~July 19, Fed July 29), curating
+replacements keeps the sample alive.
 
 A **within-platform arb harness** (phase 2) also runs on Manifold: it detects a
 complete set buyable under $1 (binary YES+NO, or multi buy-all) and paper-executes
@@ -31,7 +34,7 @@ with fake money — proving the edge math and execution loop at zero risk.
 
 Phases (see the design doc §7): **0** scaffold ✅ → **1** Manifold end-to-end ✅ →
 **2** within-platform arb + paper execution ✅ → **3** add Kalshi ✅ / Polymarket ✅ +
-curate ~15 links ✅ → **4** multi-week calibration study.
+curate ~15 links ✅ → **4** multi-week calibration study ⏳ (in progress).
 
 ## How it works
 
