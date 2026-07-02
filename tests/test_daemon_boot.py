@@ -3,6 +3,8 @@ cycle runs without error, and shutdown is clean (design doc §7)."""
 
 from datetime import datetime, timezone
 
+import pytest
+
 from scanner.config import Settings
 from scanner.daemon import Scanner
 from scanner.models import Market, Outcome, Quote
@@ -48,3 +50,26 @@ async def test_scanner_boots_and_cycles_with_empty_links(tmp_path):
     assert set(scanner.connectors) == {"manifold", "kalshi", "polymarket"}
 
     await scanner._shutdown()  # clean shutdown closes the store
+
+
+async def test_poll_venue_failure_backs_off_without_raising(tmp_path):
+    """A venue failure must back off and return, never propagate (design doc §9).
+
+    Regression: the backoff sleep (`asyncio.wait_for` on the stop event) raises
+    TimeoutError when it elapses; uncaught, it escaped the venue's except block and
+    killed the whole daemon on every poll failure."""
+    settings = Settings.load()
+    settings.scanner.db_path = tmp_path / "edge.db"
+    settings.manifold_harness.watch = []
+    scanner = Scanner(settings, links=[])
+
+    async def boom(ids):
+        raise RuntimeError("venue down")
+
+    scanner.connectors["kalshi"].list_markets = boom  # fail before any network I/O
+    scanner._backoff["kalshi"] = 0.01  # keep the backoff sleep test-fast
+
+    await scanner._poll_venue("kalshi", ["SOME-TICKER"])  # must not raise
+    assert scanner._backoff["kalshi"] == pytest.approx(0.02)  # and must escalate
+
+    await scanner._shutdown()

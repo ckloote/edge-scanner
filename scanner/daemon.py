@@ -99,7 +99,10 @@ class Scanner:
         except Exception:  # noqa: BLE001 - isolate venue failures
             backoff = self._backoff[venue]
             log.warning("%s poll failed; backing off %.0fs", venue, backoff, exc_info=True)
-            await asyncio.wait_for(self._stop.wait(), timeout=backoff)  # interruptible sleep
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=backoff)  # interruptible sleep
+            except asyncio.TimeoutError:
+                pass  # backoff elapsed without a stop request — resume next cycle
             self._backoff[venue] = min(backoff * 2, BACKOFF_MAX)
             return
         self._backoff[venue] = BACKOFF_BASE

@@ -87,8 +87,12 @@ def outcomes_of(market_id: str, full: dict, market_type: str) -> list[Outcome]:
     return [Outcome(market_id=market_id, label=label) for label in labels]
 
 
-def build_market(curated_id: str, full: dict) -> Market:
-    """FullMarket JSON -> canonical Market with its Outcomes attached."""
+def build_market(curated_id: str, full: dict, *, now_ms: int | None = None) -> Market:
+    """FullMarket JSON -> canonical Market with its Outcomes attached.
+
+    `now_ms` pins the open/closed status derivation (tests use the fixture's
+    recording date so recorded closeTimes don't go stale); None = current time.
+    """
     market_type = market_type_of(full["outcomeType"])
     market_id = make_market_id("manifold", curated_id)
     market = Market(
@@ -96,7 +100,7 @@ def build_market(curated_id: str, full: dict) -> Market:
         venue_market_id=curated_id,
         title=full.get("question", ""),
         market_type=market_type,
-        status=status_of(full),
+        status=status_of(full, now_ms=now_ms),
         close_time=ms_to_dt(full.get("closeTime")),
         resolution_time=ms_to_dt(full.get("resolutionTime")),
         resolution_source=None,  # Manifold has no clean source field; basis risk N/A in-venue

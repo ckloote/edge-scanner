@@ -82,8 +82,13 @@ def test_status_of():
     assert status_of({"closeTime": 9_000}, now_ms=2_000) == "open"
 
 
+# The fixtures were recorded 2026-06-15; pin build_market's "now" there so the
+# open/closed assertions stay deterministic after the recorded closeTimes pass.
+RECORDED_NOW_MS = int(datetime(2026, 6, 15, tzinfo=timezone.utc).timestamp() * 1000)
+
+
 def test_build_market_binary():
-    m = build_market("P0R6uAC2nU", BINARY_FULL)
+    m = build_market("P0R6uAC2nU", BINARY_FULL, now_ms=RECORDED_NOW_MS)
     assert m.venue == "manifold"
     assert m.market_id == "manifold:P0R6uAC2nU"
     assert m.market_type == "binary"
@@ -95,7 +100,7 @@ def test_build_market_binary():
 
 
 def test_build_market_multi():
-    m = build_market("qtUIl9NEh8", MULTI_FULL)
+    m = build_market("qtUIl9NEh8", MULTI_FULL, now_ms=RECORDED_NOW_MS)
     assert m.market_type == "multi"
     assert [o.label for o in m.outcomes] == ["Rick Jackson", "Burt Jones"]
 
