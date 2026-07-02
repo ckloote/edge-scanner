@@ -2,7 +2,7 @@
 # Read with stdlib `tomllib` (Python 3.11+). See scanner/config.py.
 
 [scanner]
-poll_interval_seconds = 10       # ~14 links; Polymarket fetches each YES/NO book per market,
+poll_interval_seconds = 30       # ~14 links; Polymarket fetches each YES/NO book per market,
                                  # so keep the cadence gentle on the CLOB rate limit (§9)
 db_path = "data/edge_scanner.db" # SQLite (WAL); the durable store
 log_level = "INFO"
@@ -21,7 +21,7 @@ min_net_edge = 0.0         # only "trade" when net edge (after fees) stays posit
 [edge]
 # TBD #1 (design doc §10): set to the current short T-bill yield. One number;
 # drives the entire lockup-cost term. Placeholder below — CONFIRM at build time.
-risk_free_rate = 0.043           # ~4.3% annualized; update to live short T-bill
+risk_free_rate = 0.0364           # ~4.3% annualized; update to live short T-bill
 
 # ---------------------------------------------------------------------------
 # Per-venue config. Fee parameters were DERIVED FROM LIVE API DOCS on

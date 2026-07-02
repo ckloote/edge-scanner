@@ -17,7 +17,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ckloote
-WorkingDirectory=/home/ckloote/code/edge-scanner
+WorkingDirectory=/home/ckloote/edge-scanner
 ExecStart=/usr/bin/env uv run edge-scanner
 Restart=always
 RestartSec=5
