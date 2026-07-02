@@ -36,7 +36,8 @@ exact versions, so the env matches your dev machine.
   (placeholder is 0.043). For a multi-week run on an SD card you may want to raise
   `poll_interval_seconds` (e.g. 30) to slow DB growth — edges move slowly, so window
   durations are still well captured (see Maintenance).
-- `config/links.yaml` already holds the 14 curated links.
+- `config/links.yaml` holds the curated links (14 at study start; resolved ones
+  auto-retire — see Maintenance for replenishing).
 
 ## 4. Install the two services
 
@@ -75,18 +76,28 @@ Pi OS ships no firewall by default. If you enabled `ufw`: `sudo ufw allow 8501/t
 systemctl status edge-scanner edge-scanner-dashboard   # are they up?
 journalctl -u edge-scanner -f                           # live scanner logs
 uv run python scripts/report.py                         # one-shot results summary (read-only)
+uv run python scripts/analyze.py                        # §1 answer: edge-window frequency + duration
 ```
 
 `scripts/report.py` prints row counts, the edge-history time span, the latest edge per
 event (sorted by net, positive ones starred), and any Manifold paper trades — handy
-over SSH without opening the dashboard.
+over SSH without opening the dashboard. `scripts/analyze.py` is the phase-4 report:
+positive-net edge windows per event and across thresholds (`--min-net`, `--min-exec`,
+`--gap`). Both read the DB read-only, safe while the daemon writes.
 
 ## Maintenance
 
-- **DB growth.** At a 10 s interval the 14 links write ~56 quote rows/cycle (~0.5 M/day).
-  Over weeks that's substantial on an SD card — watch `du -h data/edge_scanner.db`, and
-  raise `poll_interval_seconds` if needed. (A retention/rotation job for the `quote`
-  table is a known follow-up.)
+- **Replenishing links.** Links whose markets resolve are **auto-retired** by the
+  daemon (polling and edge rows stop; history stays — watch for `link … retired` in
+  the journal). To keep the study's sample size up, periodically run
+  `uv run python scripts/curate.py` (near-dated candidate pairs with paste-ready
+  stanzas), verify each pair resolves on identical criteria, flip its
+  `resolution_check` to `confirmed-equivalent`, add it to `config/links.yaml`, and
+  `sudo systemctl restart edge-scanner` (links are read at boot only).
+- **DB growth.** At a 30 s interval the links write ~4 quote rows each per cycle
+  (~40 MB/day observed). Over weeks that's substantial on an SD card — watch
+  `du -h data/edge_scanner.db`, and raise `poll_interval_seconds` if needed. (A
+  retention/rotation job for the `quote` table is a known follow-up.)
 - **Updating.** `git pull && uv sync --extra dashboard --no-dev && sudo systemctl restart
   edge-scanner edge-scanner-dashboard`.
 - **Clock.** Ensure NTP is on (Pi OS default) — timestamps drive lockup/horizon math.

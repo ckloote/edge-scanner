@@ -25,8 +25,10 @@ writes normalized quotes, and computes the §6 cross-venue edge per linked event
 **net-edge-over-time** view (with the basis-risk flag broken out). 14 links are
 curated in `config/links.yaml` (6 Fed-decision outcomes + 8 World Cup winners, all
 Kalshi↔Polymarket), and the study has been collecting on a Raspberry Pi since
-2026-06-18. As near-dated links resolve (World Cup ~July 19, Fed July 29), curating
-replacements keeps the sample alive.
+2026-06-18. As near-dated links resolve (World Cup ~July 19, Fed July 29) the daemon
+**auto-retires** them (polling and edge rows stop; history stays), and
+`scripts/curate.py` suggests replacement pairs — which you verify by hand before
+they enter `links.yaml`.
 
 A **within-platform arb harness** (phase 2) also runs on Manifold: it detects a
 complete set buyable under $1 (binary YES+NO, or multi buy-all) and paper-executes
@@ -115,12 +117,14 @@ journalctl -u edge-scanner -f
 
 ```
 config/        settings.toml (risk-free rate, poll interval, fees) + links.yaml
-scanner/       models, config loader, SQLite store, edge math, daemon
+scanner/       models, config loader, SQLite store, edge math, daemon (auto-retires
+               resolved links), analysis (edge windows), curation (pair matching)
   connectors/  Connector Protocol + manifold / kalshi / polymarket (fees implemented)
 dashboard/     Streamlit app (reads SQLite WAL directly)
-tests/         edge math + per-venue fees() unit tests + config/boot tests
-deploy/        systemd unit (Restart=always)
-docs/          design doc, implementation plan, live-API findings
+scripts/       report.py (SSH status), analyze.py (§1 answer), curate.py (link candidates)
+tests/         edge math, per-venue fees(), config/boot, wiring, analysis, curation
+deploy/        systemd units for scanner + dashboard (Restart=always)
+docs/          design doc, implementation plan, live-API findings, Pi deploy guide
 ```
 
 ## Safety & scope

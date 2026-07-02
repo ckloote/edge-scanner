@@ -13,7 +13,7 @@ parity; `tomllib` is stdlib at that version.
 
 ```bash
 uv sync                 # .venv + deps + dev group
-uv run pytest           # 33 tests, ~0.2s
+uv run pytest           # 95 tests, <1s
 uv run edge-scanner     # boot the daemon
 uv run ruff check .
 ```
@@ -156,14 +156,40 @@ cross-venue edge computes end-to-end and renders in the dashboard.
   The dashboard shows the chosen direction. Tests in `tests/test_edge_wiring.py`.
 - **Do not** start automated semantic matching (design doc §7).
 
-## Phase 4 — Calibration study
+## Phase 4 — Calibration study (running since 2026-06-18)
 
 > **Done when:** `edge_snapshot` has enough history to answer the §1 question.
 
-- Run for several weeks; dashboard view of net-edge-over-time per event, **with the
-  basis-risk flag broken out** (design doc §10).
-- Analysis tail (pandas): frequency + duration of genuine, after-fee, executable,
-  near-dated edges.
+Collecting on the Pi (systemd, two services — see `docs/deploy-pi.md`) at a 30s
+interval over the curated links. Tooling delivered along the way:
+
+- **Analysis tail ✅** (`scanner/analysis.py` + `scripts/analyze.py`, 2026-07-02).
+  Extracts positive-net edge WINDOWS (maximal runs of snapshots above a threshold);
+  coverage gaps >90s close a window and never bridge one; single-snapshot "blips"
+  are counted but excluded from duration stats. The CLI reports per-event
+  %-time-positive, the window table, and the §1 answer across thresholds
+  (0/0.25%/0.5%/1%) with a `--min-exec` depth floor so *executable* means real
+  size held throughout. Built on stdlib (not pandas as sketched) so it runs with
+  the daemon's own deps over SSH. First 14 days: screen edges are common, but
+  depth — not price — is the binding constraint.
+- **Ops hardening** (2026-07-02): fixed a crash-loop where the per-venue backoff
+  sleep's `TimeoutError` escaped the error handler and killed the daemon on every
+  venue poll failure (98 systemd restarts, ~18 min of coverage lost — measured,
+  negligible, and coincident with venue outages so the study is unbiased).
+- **Auto-retire guard ✅** (2026-07-02): a link with a resolved leg drops out of
+  polling and edge computation (logged once; history stays). Needed because a
+  resolved Kalshi market keeps quoting $1.00 asks at zero size, which wrote
+  plausible-looking junk edge rows after the first World Cup eliminations.
+- **Curation assistant ✅** (`scanner/curation.py` + `scripts/curate.py`,
+  2026-07-02): as links resolve, suggests replacement Kalshi↔Polymarket pairs
+  (title similarity gated by resolution-date proximity) as paste-ready stanzas.
+  Emitted `resolution_check: suspect` on purpose — the human verifies equivalence
+  and flips it; automated matching stays banned (design doc §7/§9). Venue
+  enumeration facts (Kalshi `/events`, Gamma bounds) are in api-findings.md.
+
+Remaining for phase 4: keep the link set replenished as near-dated events resolve
+(assistant + hand-verification), and a `quote`-table retention job (~40 MB/day at
+30s — the known follow-up from §9).
 
 ---
 
@@ -171,7 +197,7 @@ cross-venue edge computes end-to-end and renders in the dashboard.
 
 | TBD | Status |
 |---|---|
-| #1 `risk_free_rate` | Placeholder **0.043** in `settings.toml` — **confirm** live short T-bill at build. |
+| #1 `risk_free_rate` | **Done** — set to **0.0364** (live short T-bill, 2026-06) before collection began; the whole `edge_snapshot` history is on one rate. Inputs are stored separately, so net can be recomputed offline if it moves. |
 | #2 ~15 links | **Done** — 14 verified links curated (6 Fed + 8 World Cup) in `config/links.yaml`. |
 | #3 Polymarket public CLOB read | **Resolved** — `/book` is public + has depth (api-findings). |
 | #4 Kalshi category multipliers | **Resolved/flagged** — schedule appears uniform 0.07; kept per-series configurable. Re-confirm the canonical PDF. |

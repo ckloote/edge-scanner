@@ -157,6 +157,40 @@ stale.
 
 ---
 
+## Addendum — enumeration & lifecycle probes (2026-07-02)
+
+Derived while building the curation assistant (`scripts/curate.py`) and the
+daemon's auto-retire guard. Same caveat as above: re-verify before relying.
+
+**Kalshi**
+- **Resolved markets keep quoting.** A finalized market returns
+  `yes_ask_dollars = no_ask_dollars = "1.0000"`, bids `"0.0000"`, sizes 0 — asks
+  are *not* nulled. Anything computing on latest quotes must gate on `status`,
+  or a resolved leg reads as a plausible small negative edge (hence the daemon's
+  auto-retire guard).
+- **Enumeration fields are gutted on the public feed:** `volume`, `volume_24h`,
+  `open_interest` are null and `liquidity_dollars` is `"0.0000"` even on deep
+  markets (Fed, World Cup). No liquidity filtering is possible from
+  `GET /markets`; "has a YES bid" is the only liveness signal.
+- **`close_time` placeholders:** `can_close_early` series carry far-future
+  close_times (World Cup markets "close" 2028-07-18 but expire 2026-07-19), so
+  `min/max_close_ts` bounds (which do work) silently drop them.
+  `expected_expiration_time` is the real date — but there is no expiration-bound
+  query param, so bounding must be client-side.
+- **`GET /markets` is unbounded noise:** 40k+ open markets, dominated by
+  hourly/parlay series, not exhausted at 40×1000 pages. **Use
+  `GET /events?status=open&with_nested_markets=true&limit=200` instead**: ~7k
+  events / ~63k nested markets, cursor-paginated, exhausts in ~35 pages (~1 min).
+  Nested market objects carry the same fields as `/markets` rows; per-outcome
+  text lives in `yes_sub_title`.
+
+**Polymarket (Gamma)**
+- `order=volumeNum&ascending=false` works; `volumeNum`/`liquidityNum` are
+  numeric (the string twins remain).
+- **`end_date_min` / `end_date_max` filter server-side** — use them; the
+  pagination **offset is capped (~2500 → HTTP 422)**, so without date bounds a
+  volume-desc sweep only ever sees the top ~2500 markets.
+
 ## Net effect on the implementation
 
 - **All three venues now share one fee shape:** `k × C × p × (1−p)` (Manifold k=0). The
