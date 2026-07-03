@@ -211,7 +211,8 @@ def q_window_stats() -> dict | None:
         pos = sum(s.positive_s for s in stats)
         wins = [w for s in stats for w in s.windows]
         sust = [w for w in wins if w.sustained]
-        durs = [w.duration_s for w in sust if w.clean and w.executable]
+        ce = [w for w in sust if w.clean and w.executable]
+        durs = [w.duration_s for w in ce]
         summary.append({
             "threshold": f"net > {t:.4f}",
             "%time": round(100.0 * pos / obs, 1) if obs else 0.0,
@@ -224,6 +225,7 @@ def q_window_stats() -> dict | None:
             ) if durs else "—",
             "max": fmt_duration(max(durs)) if durs else "—",
             "per event-day": round(len(durs) / (obs / 86400.0), 2) if obs else 0.0,
+            "events": ", ".join(sorted({w.event_id for w in ce})) or "—",
         })
 
     top_pool = [w for s in by_thr[0.0] for w in s.windows if w.sustained]

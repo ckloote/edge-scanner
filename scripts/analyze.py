@@ -142,7 +142,7 @@ def main() -> None:
     print(f"\nthe §1 answer — genuine (basis-clean) + executable ({exec_rule}) "
           "sustained windows:")
     print(f"  {'threshold':<12} {'%time':>6} {'sust':>5} {'blips':>5} {'clean+exec':>10} "
-          f"{'med':>7} {'p90':>7} {'max':>7}  {'per event-day':>13}")
+          f"{'med':>7} {'p90':>7} {'max':>7}  {'per event-day':>13}  events")
     for t in thresholds:
         stats = by_thr[t]
         obs = sum(s.observed_s for s in stats)
@@ -151,10 +151,12 @@ def main() -> None:
         sust = [w for w in wins if w.sustained]
         ce = [w for w in sust if w.clean and is_exec(w)]
         freq = len(ce) / (obs / 86400.0) if obs else 0.0
+        evs = sorted({w.event_id for w in ce})
+        ev_str = ", ".join(evs[:6]) + (f" +{len(evs) - 6} more" if len(evs) > 6 else "")
         mark = " <- --min-net" if t == args.min_net and t not in SENSITIVITY else ""
         print(f"  net > {t:.4f} {100.0 * pos / obs if obs else 0.0:>5.1f}% {len(sust):>5} "
               f"{len(wins) - len(sust):>5} {len(ce):>10} {_dur_stats([w.duration_s for w in ce])}"
-              f"  {freq:>13.2f}{mark}")
+              f"  {freq:>13.2f}{mark}  {ev_str or '—'}")
     print("\nduration stats are over clean+exec sustained windows; 'per event-day' is that"
           "\ncount / total observed event-time. Blips last <= one poll interval and are"
           "\ncounted but excluded from durations. Windows open at data end are included.")
