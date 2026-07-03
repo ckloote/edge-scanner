@@ -12,7 +12,7 @@ import asyncio
 import logging
 import signal
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .arb import detect
 from .config import Settings, load_links
@@ -40,6 +40,13 @@ BACKOFF_MAX = 60.0
 # Re-sync market/outcome metadata every N cycles to catch status/close changes
 # (cheap at v1 volume; ~10 min at a 3s interval).
 META_REFRESH_CYCLES = 200
+# A leg whose latest quote is older than this many poll intervals is treated as
+# unquotable: if a venue goes down, computing edges against its last stored quote
+# manufactures phantom edge windows in exactly the duration data the study
+# measures. 3 intervals = 90s at the deployed 30s cadence — deliberately the same
+# cutoff as the analysis gap rule (scanner/analysis.DEFAULT_GAP_S), so "no edge
+# row written" and "window closes" agree about what an outage means.
+STALE_QUOTE_INTERVALS = 3
 
 
 def _venue_market_ids(links: list[EventLink]) -> dict[str, list[str]]:
@@ -205,15 +212,22 @@ class Scanner:
                 return 1
         return 0
 
-    def _eval_direction(self, leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate):
+    def _eval_direction(self, leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate,
+                        stale_before=None):
         """Evaluate one arb direction (buy out_a on A + out_b on B). None if either
-        leg lacks a tradable ask. Returns (oid_a, oid_b, EdgeResult)."""
+        leg lacks a tradable ask, or its latest quote predates `stale_before`.
+        Returns (oid_a, oid_b, EdgeResult)."""
         oid_a = make_outcome_id(mid_a, out_a)
         oid_b = make_outcome_id(mid_b, out_b)
         qa = self.store.latest_quote(oid_a)
         qb = self.store.latest_quote(oid_b)
         if not qa or not qb or qa["ask"] is None or qb["ask"] is None:
             return None
+        if stale_before is not None and (
+            datetime.fromisoformat(qa["ts"]) < stale_before
+            or datetime.fromisoformat(qb["ts"]) < stale_before
+        ):
+            return None  # a stale leg would fabricate a phantom edge window
         inp = EdgeInputs(
             ask_a=qa["ask"],
             ask_b=qb["ask"],
@@ -241,6 +255,9 @@ class Scanner:
             links = self._live_links()
         now = datetime.now(tz=timezone.utc)
         rate = self.settings.edge.risk_free_rate
+        stale_before = now - timedelta(
+            seconds=STALE_QUOTE_INTERVALS * self.settings.scanner.poll_interval_seconds
+        )
         for link in links:
             leg_a, leg_b = link.legs
             mid_a = make_market_id(leg_a.venue, leg_a.venue_market_id)
@@ -259,7 +276,8 @@ class Scanner:
                 cand
                 for out_a, out_b in directions
                 if (cand := self._eval_direction(
-                    leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate
+                    leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate,
+                    stale_before=stale_before,
                 ))
             ]
             if not evaluated:

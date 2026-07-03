@@ -180,6 +180,10 @@ interval over the curated links. Tooling delivered along the way:
   sleep's `TimeoutError` escaped the error handler and killed the daemon on every
   venue poll failure (98 systemd restarts, ~18 min of coverage lost — measured,
   negligible, and coincident with venue outages so the study is unbiased).
+- **Stale-quote guard ✅** (2026-07-02): a leg whose latest quote is older than 3
+  poll intervals is treated as unquotable, so a downed venue's last stored quote
+  can't keep feeding edge snapshots (phantom windows). The cutoff equals the
+  analysis gap rule (90s at 30s cadence): no-row-written and window-closes agree.
 - **Auto-retire guard ✅** (2026-07-02): a link with a resolved leg drops out of
   polling and edge computation (logged once; history stays). Needed because a
   resolved Kalshi market keeps quoting $1.00 asks at zero size, which wrote

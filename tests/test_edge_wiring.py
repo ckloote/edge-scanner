@@ -132,6 +132,56 @@ def test_compute_edges_skips_when_a_leg_has_no_ask(tmp_path):
     sc.store.close()
 
 
+def test_stale_quotes_produce_no_edge_row(tmp_path):
+    """Quotes older than the staleness cutoff (3 poll intervals) must not feed the
+    edge computation — a downed venue's last quote would fabricate phantom windows."""
+    res = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    link = EventLink(
+        event_id="stale",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+        resolution_check="confirmed-equivalent",
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    old = datetime.now(tz=timezone.utc) - timedelta(minutes=10)  # >> 3 x 30s interval
+    _seed_leg(sc.store, "kalshi", "KT", 0.93, 100, res)
+    _seed_leg(sc.store, "polymarket", "0xPC", 0.07, 300, res)
+    sc.store.insert_quote(Quote(ts=old, outcome_id="kalshi:KT:YES", ask=0.93, ask_size=100))
+    sc.store.insert_quote(Quote(ts=old, outcome_id="polymarket:0xPC:NO", ask=0.07, ask_size=300))
+
+    sc._compute_edges()
+    assert sc.store.edge_history("stale") == []
+    sc.store.close()
+
+
+def test_stale_direction_falls_back_to_fresh_mirror(tmp_path):
+    """One venue's YES/NO pair goes stale on the encoded side only -> the fresh
+    mirror direction is still evaluated and persisted (with no mirror columns)."""
+    res = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    link = EventLink(
+        event_id="half-stale",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+        resolution_check="confirmed-equivalent",
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    now = datetime.now(tz=timezone.utc)
+    old = now - timedelta(minutes=10)
+    _seed_leg(sc.store, "kalshi", "KT", 0, 0, res)
+    _seed_leg(sc.store, "polymarket", "0xPC", 0, 0, res)
+    # encoded direction (KT:YES + 0xPC:NO): one leg stale
+    sc.store.insert_quote(Quote(ts=old, outcome_id="kalshi:KT:YES", ask=0.60, ask_size=50))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:NO", ask=0.35, ask_size=80))
+    # mirror direction (KT:NO + 0xPC:YES): both fresh
+    sc.store.insert_quote(Quote(ts=now, outcome_id="kalshi:KT:NO", ask=0.42, ask_size=60))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:YES", ask=0.63, ask_size=90))
+
+    sc._compute_edges()
+    r = sc.store.edge_history("half-stale")[-1]
+    assert r["leg_a_outcome_id"] == "kalshi:KT:NO"  # the fresh mirror won by default
+    assert r["gross_edge"] == pytest.approx(1.0 - (0.42 + 0.63))
+    assert r["mirror_net_edge"] is None  # the stale direction was not evaluated
+    sc.store.close()
+
+
 def test_retired_link_stops_polling_and_edges(tmp_path):
     """A link with a resolved leg drops out of the live set and gains no edge rows;
     its history stays put (auto-retire guard)."""
