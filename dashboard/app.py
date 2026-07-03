@@ -173,6 +173,26 @@ def q_outcomes(market_id: str) -> list[dict]:
     ).fetchall()]
 
 
+@st.cache_data(ttl=CACHE_TTL_S)
+def q_event_titles() -> dict[str, str]:
+    """event_id -> leg A's market title (the human question behind the slug).
+    Uses the latest snapshot per event, so retired links keep their name."""
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT e.event_id, e.leg_a_outcome_id FROM edge_snapshot e "
+        "JOIN (SELECT event_id, MAX(ts) mt FROM edge_snapshot GROUP BY event_id) l "
+        "  ON e.event_id = l.event_id AND e.ts = l.mt"
+    ).fetchall()
+    titles: dict[str, str] = {}
+    for r in rows:
+        market_id = r["leg_a_outcome_id"].rpartition(":")[0]
+        t = conn.execute(
+            "SELECT title FROM market WHERE market_id = ?", (market_id,)
+        ).fetchone()
+        titles[r["event_id"]] = t["title"] if t else r["event_id"]
+    return titles
+
+
 @st.cache_data(ttl=WINDOW_STATS_TTL_S, show_spinner="extracting edge windows…")
 def q_window_stats() -> dict | None:
     """Whole-history edge-window extraction (scanner/analysis.py), pre-formatted.
@@ -228,6 +248,7 @@ def q_window_stats() -> dict | None:
 
     top_pool = [w for s in by_thr[0.0] for w in s.windows if w.sustained]
     top_pool.sort(key=lambda w: -w.duration_s)
+    titles = q_event_titles()
     top = []
     for w in top_pool[:TOP_WINDOWS]:
         notes = []
@@ -239,6 +260,7 @@ def q_window_stats() -> dict | None:
             notes.append("still open")
         top.append({
             "event": w.event_id,
+            "market": titles.get(w.event_id, "—"),
             "start (UTC)": w.start.strftime("%m-%d %H:%M"),
             "duration": fmt_duration(w.duration_s),
             "peak net": f"{w.peak_net:+.4f}",
