@@ -1,9 +1,11 @@
 """Streamlit dashboard (design doc §3) — reads SQLite (WAL) directly, no write path.
 
 Surfaces the research output: cross-venue edges per linked event (with the
-positive-net ones called out and a net-edge-over-time chart), the Manifold
-within-platform paper trades, per-outcome price history, and the markets table.
-All views attach to one read-only connection, concurrent with the daemon's writes.
+positive-net ones called out and a net-edge-over-time chart), the whole-study
+edge-window summary (scanner/analysis.py, same numbers as scripts/analyze.py),
+the Manifold within-platform paper trades, per-outcome price history, and the
+markets table. All views attach to one read-only connection, concurrent with
+the daemon's writes.
 
 Performance (a Streamlit script reruns TOP TO BOTTOM on every widget click):
 - Every query is wrapped in @st.cache_data(ttl=30s) — interactions that reuse
@@ -19,11 +21,14 @@ Run:  uv run --extra dashboard streamlit run dashboard/app.py
 from __future__ import annotations
 
 import sqlite3
+import statistics
 from datetime import datetime, timedelta, timezone
+from itertools import groupby
 
 import pandas as pd
 import streamlit as st
 
+from scanner.analysis import Snap, extract_windows, fmt_duration
 from scanner.config import Settings
 
 st.set_page_config(page_title="edge-scanner", layout="wide")
@@ -31,6 +36,11 @@ st.set_page_config(page_title="edge-scanner", layout="wide")
 CACHE_TTL_S = 30  # the deployed poll cadence — fresher would just re-read the same data
 CHART_MAX_POINTS = 1000  # ~chart pixel width; more points than pixels is pure overhead
 WINDOWS: dict[str, float | None] = {"24h": 1.0, "7d": 7.0, "30d": 30.0, "all": None}
+# Edge-window extraction scans ALL of edge_snapshot (one streaming pass, seconds,
+# not ms) — cache it well past the poll cadence; the numbers barely move in 5 min.
+WINDOW_STATS_TTL_S = 300
+WINDOW_THRESHOLDS = (0.0, 0.0025, 0.005, 0.01)  # scripts/analyze.py SENSITIVITY
+TOP_WINDOWS = 10
 
 
 @st.cache_resource
@@ -161,6 +171,82 @@ def q_outcomes(market_id: str) -> list[dict]:
         "SELECT outcome_id, label FROM outcome WHERE market_id = ? ORDER BY label",
         (market_id,),
     ).fetchall()]
+
+
+@st.cache_data(ttl=WINDOW_STATS_TTL_S, show_spinner="extracting edge windows…")
+def q_window_stats() -> dict | None:
+    """Whole-history edge-window extraction (scanner/analysis.py), pre-formatted.
+
+    Mirrors scripts/analyze.py: per threshold, count sustained windows and the
+    clean+executable subset with duration stats; plus the top sustained windows
+    at net > 0. Returns plain dicts (picklable) or None if there's no history.
+    """
+    cur = _connect().execute(
+        "SELECT event_id, ts, net_edge, executable_size, days_to_resolution,"
+        " basis_risk_flag FROM edge_snapshot ORDER BY event_id, ts"
+    )
+    by_thr: dict[float, list] = {t: [] for t in WINDOW_THRESHOLDS}
+    n_snaps = 0
+    for event_id, rows in groupby(cur, key=lambda r: r["event_id"]):
+        snaps = [
+            Snap(
+                ts=datetime.fromisoformat(r["ts"]),
+                net=r["net_edge"],
+                exec_size=r["executable_size"] or 0.0,
+                days=r["days_to_resolution"] or 0.0,
+                basis=r["basis_risk_flag"],
+            )
+            for r in rows
+        ]
+        n_snaps += len(snaps)
+        for t in WINDOW_THRESHOLDS:
+            by_thr[t].append(extract_windows(event_id, snaps, threshold=t))
+    if n_snaps == 0:
+        return None
+
+    summary = []
+    for t in WINDOW_THRESHOLDS:
+        stats = by_thr[t]
+        obs = sum(s.observed_s for s in stats)
+        pos = sum(s.positive_s for s in stats)
+        wins = [w for s in stats for w in s.windows]
+        sust = [w for w in wins if w.sustained]
+        durs = [w.duration_s for w in sust if w.clean and w.executable]
+        summary.append({
+            "threshold": f"net > {t:.4f}",
+            "%time": round(100.0 * pos / obs, 1) if obs else 0.0,
+            "sustained": len(sust),
+            "blips": len(wins) - len(sust),
+            "clean+exec": len(durs),
+            "median": fmt_duration(statistics.median(durs)) if durs else "—",
+            "p90": fmt_duration(
+                statistics.quantiles(durs, n=10)[-1] if len(durs) >= 2 else durs[0]
+            ) if durs else "—",
+            "max": fmt_duration(max(durs)) if durs else "—",
+            "per event-day": round(len(durs) / (obs / 86400.0), 2) if obs else 0.0,
+        })
+
+    top_pool = [w for s in by_thr[0.0] for w in s.windows if w.sustained]
+    top_pool.sort(key=lambda w: -w.duration_s)
+    top = []
+    for w in top_pool[:TOP_WINDOWS]:
+        notes = []
+        if not w.clean:
+            notes.append("basis⚠")
+        if not w.executable:
+            notes.append("no-depth")
+        if w.open_at_data_end:
+            notes.append("still open")
+        top.append({
+            "event": w.event_id,
+            "start (UTC)": w.start.strftime("%m-%d %H:%M"),
+            "duration": fmt_duration(w.duration_s),
+            "peak net": f"{w.peak_net:+.4f}",
+            "min exec": round(w.min_exec, 1),
+            "days": round(w.days_at_start),
+            "notes": ", ".join(notes) or "clean+exec",
+        })
+    return {"summary": summary, "top": top, "n_sustained": len(top_pool)}
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
@@ -294,6 +380,36 @@ else:
     else:
         st.line_chart(edf.set_index("ts")[["gross_edge", "net_edge", "mirror_net_edge"]])
 
+# --- Edge windows over the whole study (design doc §1) ---------------------
+st.subheader("Cross-venue edge windows — study history")
+ws = q_window_stats()
+if ws is None:
+    st.info("No edge history yet — windows appear once the scanner has snapshots.")
+else:
+    base, strict = ws["summary"][0], ws["summary"][-1]
+    c = st.columns(4)
+    c[0].metric(
+        "clean+exec windows (net > 0)",
+        base["clean+exec"],
+        help="Sustained (≥2 snapshots), basis-clean, with nonzero depth on both "
+             "legs throughout — the §1 'genuine executable edge' count.",
+    )
+    c[1].metric("median duration", base["median"])
+    c[2].metric("%time net > 0", f"{base['%time']}%")
+    c[3].metric(f"windows at {strict['threshold']}", strict["clean+exec"])
+
+    st.dataframe(pd.DataFrame(ws["summary"]), width="stretch", hide_index=True)
+    st.markdown(f"**Longest sustained windows** (net > 0, top {len(ws['top'])} "
+                f"of {ws['n_sustained']}):")
+    st.dataframe(pd.DataFrame(ws["top"]), width="stretch", hide_index=True)
+    st.caption(
+        "A window is a maximal run of snapshots with net above the threshold; a "
+        "coverage gap > 90s closes it. Blips (single snapshot, ≤ one poll interval) "
+        "are counted but excluded from durations. Whole study history, recomputed "
+        f"every {WINDOW_STATS_TTL_S // 60} min — `scripts/analyze.py` gives the same "
+        "numbers with adjustable thresholds."
+    )
+
 # --- Within-platform arb: Manifold paper trades (design doc §7 phase 2) ----
 st.subheader("Within-platform arb — Manifold paper trades")
 prows = q_paper_trades()
@@ -309,9 +425,10 @@ if prows:
     )
 else:
     st.info(
-        "No within-platform arbs captured yet — Manifold is efficient (crossing limit "
-        "orders get matched away), so the harness fires only when a complete set is "
-        "briefly buyable under $1."
+        "No *Manifold within-platform* arbs captured yet — this is separate from the "
+        "cross-venue edge windows above. Manifold is efficient (crossing limit orders "
+        "get matched away), so this harness fires only when a complete set is briefly "
+        "buyable under $1."
     )
 
 # --- Price history -------------------------------------------------------

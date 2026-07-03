@@ -110,4 +110,6 @@ positive-net edge windows per event and across thresholds (`--min-net`, `--min-e
 Let it run for several weeks, then analyse `edge_snapshot`: how often a genuine,
 after-fee, **executable**, near-dated edge appears and how long each window stays open
 — always broken out by `basis_risk_flag`. The dashboard's net-edge-over-time chart and
-`scripts/report.py` are the starting points.
+its edge-window summary section (whole-study window counts + durations, refreshed
+every 5 min) are the at-a-glance views; `scripts/report.py` and `scripts/analyze.py`
+give the same numbers over SSH with adjustable thresholds.

@@ -21,8 +21,9 @@ the frequency and duration of real edges can be measured.
 AMM probabilities, **Kalshi** dollar-string top-of-book, **Polymarket** Gamma + CLOB)
 are implemented and verified live. Each cycle the daemon polls the curated set,
 writes normalized quotes, and computes the §6 cross-venue edge per linked event into
-`edge_snapshot`. The dashboard renders both the per-outcome price history and a
-**net-edge-over-time** view (with the basis-risk flag broken out). 14 links are
+`edge_snapshot`. The dashboard renders the per-outcome price history, a
+**net-edge-over-time** view (with the basis-risk flag broken out), and a
+whole-study **edge-window summary** (same numbers as `scripts/analyze.py`). 14 links are
 curated in `config/links.yaml` (6 Fed-decision outcomes + 8 World Cup winners, all
 Kalshi↔Polymarket), and the study has been collecting on a Raspberry Pi since
 2026-06-18. As near-dated links resolve (World Cup ~July 19, Fed July 29) the daemon

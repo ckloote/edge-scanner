@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from scanner.analysis import Snap, extract_windows
+from scanner.analysis import Snap, extract_windows, fmt_duration
 
 T0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
@@ -64,3 +64,10 @@ def test_min_exec_and_basis_propagate():
     (w,) = extract_windows("e", snaps).windows
     assert not w.executable and w.min_exec == 0.0
     assert w.basis == 1 and not w.clean
+
+
+def test_fmt_duration_unit_boundaries():
+    assert fmt_duration(43) == "43s"
+    assert fmt_duration(360) == "6m"
+    assert fmt_duration(8640) == "2.4h"  # hours until 2 days...
+    assert fmt_duration(751_680) == "8.7d"  # ...then days

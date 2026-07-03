@@ -22,6 +22,17 @@ from datetime import datetime
 DEFAULT_GAP_S = 90.0
 
 
+def fmt_duration(s: float) -> str:
+    """Human duration at the precision window analysis needs (43s / 6m / 2.4h / 8.7d)."""
+    if s < 60:
+        return f"{s:.0f}s"
+    if s < 3600:
+        return f"{s / 60:.0f}m"
+    if s < 172800:
+        return f"{s / 3600:.1f}h"
+    return f"{s / 86400:.1f}d"
+
+
 @dataclass(slots=True)
 class Snap:
     """One edge_snapshot row, reduced to what window extraction needs."""

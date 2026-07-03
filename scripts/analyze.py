@@ -21,20 +21,11 @@ from datetime import datetime
 from itertools import groupby
 
 from scanner.analysis import DEFAULT_GAP_S, EventStats, Snap, extract_windows
+from scanner.analysis import fmt_duration as fmt_dur
 from scanner.config import Settings
 
 # Sensitivity thresholds: "an edge exists" depends on where you draw net > x.
 SENSITIVITY = (0.0, 0.0025, 0.005, 0.01)
-
-
-def fmt_dur(s: float) -> str:
-    if s < 60:
-        return f"{s:.0f}s"
-    if s < 3600:
-        return f"{s / 60:.0f}m"
-    if s < 172800:
-        return f"{s / 3600:.1f}h"
-    return f"{s / 86400:.1f}d"
 
 
 def load_event_snaps(conn: sqlite3.Connection):
