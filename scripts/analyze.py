@@ -28,26 +28,6 @@ from scanner.config import Settings
 SENSITIVITY = (0.0, 0.0025, 0.005, 0.01)
 
 
-def event_titles(conn: sqlite3.Connection, width: int = 45) -> dict[str, str]:
-    """event_id -> leg A's market title (the human question behind the slug),
-    truncated to `width` for fixed-width output. Uses the latest snapshot per
-    event, so retired links keep their name."""
-    rows = conn.execute(
-        "SELECT e.event_id, e.leg_a_outcome_id FROM edge_snapshot e "
-        "JOIN (SELECT event_id, MAX(ts) mt FROM edge_snapshot GROUP BY event_id) l "
-        "  ON e.event_id = l.event_id AND e.ts = l.mt"
-    ).fetchall()
-    titles: dict[str, str] = {}
-    for r in rows:
-        market_id = r["leg_a_outcome_id"].rpartition(":")[0]
-        t = conn.execute(
-            "SELECT title FROM market WHERE market_id = ?", (market_id,)
-        ).fetchone()
-        title = t["title"] if t else r["event_id"]
-        titles[r["event_id"]] = title if len(title) <= width else title[: width - 1] + "…"
-    return titles
-
-
 def load_event_snaps(conn: sqlite3.Connection):
     """Yield (event_id, [Snap...]) per event, time-ordered, one pass over the table."""
     cur = conn.execute(
@@ -122,12 +102,10 @@ def main() -> None:
     print(f"window rule: net_edge > {args.min_net:.4f}; a coverage gap > {args.gap:.0f}s "
           f"closes a window; 'blip' = single snapshot (<= one poll interval)\n")
 
-    titles = event_titles(conn)
-
     # --- per event at the primary threshold --------------------------------
     print(f"per event (net > {args.min_net:.4f}):")
     print(f"  {'event':<18} {'%time':>6} {'sust':>5} {'blips':>5} {'longest':>8} "
-          f"{'peak net':>9}  {'clean+exec sust':>15}  market (leg A)")
+          f"{'peak net':>9}  {'clean+exec sust':>15}")
     for st in sorted(primary, key=lambda s: -s.positive_s):
         sust = [w for w in st.windows if w.sustained]
         blips = len(st.windows) - len(sust)
@@ -136,8 +114,7 @@ def main() -> None:
         ce = sum(1 for w in sust if w.clean and is_exec(w))
         print(f"  {st.event_id:<18} {st.pct_positive:>5.1f}% {len(sust):>5} {blips:>5} "
               f"{fmt_dur(longest) if sust else '—':>8} "
-              f"{('%+.4f' % peak) if st.windows else '—':>9}  {ce:>15}  "
-              f"{titles.get(st.event_id, '—')}")
+              f"{('%+.4f' % peak) if st.windows else '—':>9}  {ce:>15}")
 
     # --- sustained windows, largest first -----------------------------------
     all_windows = [w for st in primary for w in st.windows if w.sustained]
@@ -146,7 +123,7 @@ def main() -> None:
         print(f"\nsustained windows (net > {args.min_net:.4f}), top {min(15, len(all_windows))} "
               f"of {len(all_windows)} by duration:")
         print(f"  {'event':<18} {'start (UTC)':<16} {'dur':>7} {'peak net':>9} "
-              f"{'min exec':>9} {'days':>5}  {'notes':<12}  market (leg A)")
+              f"{'min exec':>9} {'days':>5}  notes")
         for w in all_windows[:15]:
             notes = []
             if not w.clean:
@@ -157,7 +134,7 @@ def main() -> None:
                 notes.append("still open")
             print(f"  {w.event_id:<18} {w.start:%m-%d %H:%M} {fmt_dur(w.duration_s):>12} "
                   f"{w.peak_net:>+9.4f} {w.min_exec:>9.1f} {w.days_at_start:>5.0f}  "
-                  f"{', '.join(notes) or 'clean+exec':<12}  {titles.get(w.event_id, '—')}")
+                  f"{', '.join(notes) or 'clean+exec'}")
 
     # --- the §1 answer: threshold sensitivity -------------------------------
     exec_rule = (f"min depth >= {args.min_exec:.0f} throughout" if args.min_exec > 0
