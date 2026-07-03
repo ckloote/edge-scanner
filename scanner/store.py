@@ -193,6 +193,33 @@ class Store:
             ),
         )
 
+    def thin_quotes(self, *, older_than: datetime, bucket_seconds: float) -> int:
+        """Retention: thin `quote` rows older than `older_than` to ONE per
+        (outcome, time bucket); newer rows keep full resolution. Returns the
+        number of rows deleted.
+
+        The keeper is the bucket's first quote (MIN rowid). Idempotent: re-running
+        over already-thinned history finds one row per bucket and deletes nothing.
+        Deleted pages are reused by SQLite, so the file stops growing rather than
+        shrinks (a manual VACUUM reclaims the space if ever needed). Only `quote`
+        is touched — `edge_snapshot`, the research output, is never thinned.
+        """
+        if bucket_seconds <= 0:
+            return 0
+        cur = self.conn.execute(
+            """
+            DELETE FROM quote
+            WHERE ts < :cutoff AND rowid NOT IN (
+                SELECT MIN(rowid) FROM quote
+                WHERE ts < :cutoff
+                GROUP BY outcome_id,
+                         CAST(strftime('%s', ts) AS INTEGER) / :bucket
+            )
+            """,
+            {"cutoff": _iso(older_than), "bucket": int(bucket_seconds)},
+        )
+        return cur.rowcount
+
     # --- reads (dashboard) ----------------------------------------------
 
     def insert_paper_trade(self, t: "PaperTrade") -> None:

@@ -6,6 +6,11 @@ poll_interval_seconds = 30       # ~14 links; Polymarket fetches each YES/NO boo
                                  # so keep the cadence gentle on the CLOB rate limit (§9)
 db_path = "data/edge_scanner.db" # SQLite (WAL); the durable store
 log_level = "INFO"
+# Quote retention (daily, in the daemon): quotes older than retention_full_hours
+# are thinned to one per outcome per retention_bucket_seconds; edge_snapshot (the
+# research output) is never touched. Set bucket seconds to 0 to disable.
+retention_full_hours = 48
+retention_bucket_seconds = 300   # 5 min: ~10x fewer old rows at the 30s poll cadence
 
 [manifold_harness]
 # Phase-2 within-platform arb harness: Manifold markets (id or slug) to watch for a

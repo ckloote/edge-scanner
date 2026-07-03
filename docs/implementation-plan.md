@@ -195,9 +195,14 @@ interval over the curated links. Tooling delivered along the way:
   and flips it; automated matching stays banned (design doc §7/§9). Venue
   enumeration facts (Kalshi `/events`, Gamma bounds) are in api-findings.md.
 
+- **Quote retention ✅** (2026-07-02): daily in-daemon thinning — `quote` rows
+  older than `retention_full_hours` (48) keep one row per outcome per
+  `retention_bucket_seconds` (300); `edge_snapshot` untouched; idempotent
+  (`store.thin_quotes`); first pass at boot. Freed pages are reused, so the DB
+  file plateaus rather than shrinks (manual VACUUM only if space is needed).
+
 Remaining for phase 4: keep the link set replenished as near-dated events resolve
-(assistant + hand-verification), and a `quote`-table retention job (~40 MB/day at
-30s — the known follow-up from §9).
+(assistant + hand-verification).
 
 ---
 

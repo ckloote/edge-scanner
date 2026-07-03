@@ -1,7 +1,7 @@
 """Phase-0 'done when' check: the scanner boots, the schema is created, a poll
 cycle runs without error, and shutdown is clean (design doc §7)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -36,6 +36,42 @@ def test_store_creates_schema_and_roundtrips(tmp_path):
         Quote(ts=datetime.now(timezone.utc), outcome_id=o.outcome_id, bid=0.6, ask=0.62)
     )
     assert len(store.quote_history(o.outcome_id)) == 1
+    store.close()
+
+
+def test_thin_quotes_keeps_recent_full_and_one_per_bucket(tmp_path):
+    store = Store(tmp_path / "edge.db")
+    m = Market(venue="kalshi", venue_market_id="KT", title="t",
+               market_type="binary", status="open")
+    store.upsert_market(m)
+    for label in ("YES", "NO"):
+        store.upsert_outcome(Outcome(market_id=m.market_id, label=label))
+
+    base = datetime.fromtimestamp(1_699_999_800, tz=timezone.utc)  # 300s-aligned
+    cutoff = base + timedelta(hours=1)
+    for label in ("YES", "NO"):
+        oid = f"{m.market_id}:{label}"
+        # old: two 300s buckets, 10 quotes each at a 30s cadence
+        for i in range(20):
+            store.insert_quote(Quote(ts=base + timedelta(seconds=30 * i),
+                                     outcome_id=oid, ask=0.5))
+        # recent (after the cutoff): must keep full resolution
+        for i in range(5):
+            store.insert_quote(Quote(ts=cutoff + timedelta(seconds=30 * i),
+                                     outcome_id=oid, ask=0.5))
+
+    deleted = store.thin_quotes(older_than=cutoff, bucket_seconds=300)
+    assert deleted == 2 * (20 - 2)  # per outcome: 20 old rows -> 2 bucket keepers
+    for label in ("YES", "NO"):
+        rows = store.quote_history(f"{m.market_id}:{label}")
+        old = [r for r in rows if r["ts"] < cutoff.isoformat()]
+        assert len(old) == 2  # one per 300s bucket, the bucket's FIRST quote
+        assert [r["ts"] for r in old] == [
+            base.isoformat(), (base + timedelta(seconds=300)).isoformat()]
+        assert sum(1 for r in rows if r["ts"] >= cutoff.isoformat()) == 5
+
+    assert store.thin_quotes(older_than=cutoff, bucket_seconds=300) == 0  # idempotent
+    assert store.thin_quotes(older_than=cutoff, bucket_seconds=0) == 0  # disabled
     store.close()
 
 

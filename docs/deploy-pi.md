@@ -94,10 +94,13 @@ positive-net edge windows per event and across thresholds (`--min-net`, `--min-e
   stanzas), verify each pair resolves on identical criteria, flip its
   `resolution_check` to `confirmed-equivalent`, add it to `config/links.yaml`, and
   `sudo systemctl restart edge-scanner` (links are read at boot only).
-- **DB growth.** At a 30 s interval the links write ~4 quote rows each per cycle
-  (~40 MB/day observed). Over weeks that's substantial on an SD card — watch
-  `du -h data/edge_scanner.db`, and raise `poll_interval_seconds` if needed. (A
-  retention/rotation job for the `quote` table is a known follow-up.)
+- **DB growth.** Retention is automatic: daily (first pass at boot) the daemon
+  thins `quote` rows older than `retention_full_hours` (48) to one per outcome per
+  `retention_bucket_seconds` (300) — ~10× fewer old rows at the 30 s cadence.
+  `edge_snapshot`, the research output, is never thinned. Note the FILE stops
+  growing rather than shrinks (SQLite reuses freed pages); run a manual `VACUUM`
+  only if you actually need the disk space back. Watch the `quote retention:`
+  journal line; set `retention_bucket_seconds = 0` to disable.
 - **Updating.** `git pull && uv sync --extra dashboard --no-dev && sudo systemctl restart
   edge-scanner edge-scanner-dashboard`.
 - **Clock.** Ensure NTP is on (Pi OS default) — timestamps drive lockup/horizon math.

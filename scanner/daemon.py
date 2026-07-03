@@ -47,6 +47,9 @@ META_REFRESH_CYCLES = 200
 # cutoff as the analysis gap rule (scanner/analysis.DEFAULT_GAP_S), so "no edge
 # row written" and "window closes" agree about what an outage means.
 STALE_QUOTE_INTERVALS = 3
+# Quote retention runs this often (first pass at boot). Idempotent, so restarts
+# re-running it early are harmless.
+RETENTION_PERIOD_S = 86400.0
 
 
 def _venue_market_ids(links: list[EventLink]) -> dict[str, list[str]]:
@@ -66,6 +69,7 @@ class Scanner:
         self.connectors = build_connectors(settings.venues)
         self._stop = asyncio.Event()
         self._retired: set[str] = set()  # event_ids logged as retired (log-once)
+        self._last_retention: float | None = None  # monotonic ts of the last thinning
         self._backoff: dict[str, float] = defaultdict(lambda: BACKOFF_BASE)
         self._meta_synced: set[str] = set()
         self._cycle_count = 0
@@ -163,6 +167,33 @@ class Scanner:
             await self._run_manifold_harness()
         except Exception:  # noqa: BLE001 - harness must never stall the loop
             log.warning("manifold harness failed this cycle", exc_info=True)
+        try:
+            self._run_retention()
+        except Exception:  # noqa: BLE001 - housekeeping must never stall the loop
+            log.warning("quote retention failed this pass", exc_info=True)
+
+    def _run_retention(self) -> None:
+        """Daily quote thinning (design doc §9 Pi housekeeping): rows older than
+        `retention_full_hours` keep one quote per outcome per
+        `retention_bucket_seconds`. First pass at boot (idempotent), then every
+        RETENTION_PERIOD_S. Runs in the writer's own connection, so there is no
+        lock contention with polling — just one slightly longer cycle per day."""
+        cfg = self.settings.scanner
+        if cfg.retention_bucket_seconds <= 0:
+            return
+        mono = asyncio.get_event_loop().time()
+        if self._last_retention is not None and mono - self._last_retention < RETENTION_PERIOD_S:
+            return
+        self._last_retention = mono
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=cfg.retention_full_hours)
+        deleted = self.store.thin_quotes(
+            older_than=cutoff, bucket_seconds=cfg.retention_bucket_seconds
+        )
+        elapsed = asyncio.get_event_loop().time() - mono
+        log.info(
+            "quote retention: thinned %d row(s) older than %s to one/%.0fs (%.1fs)",
+            deleted, cutoff.strftime("%Y-%m-%d %H:%M"), cfg.retention_bucket_seconds, elapsed,
+        )
 
     async def _run_manifold_harness(self) -> None:
         """Phase-2 harness: detect within-platform arb on watched Manifold markets and

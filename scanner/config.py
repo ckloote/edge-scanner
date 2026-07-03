@@ -25,6 +25,11 @@ class ScannerConfig:
     poll_interval_seconds: float
     db_path: Path
     log_level: str
+    # Quote retention (design doc §9 housekeeping): rows older than
+    # `retention_full_hours` are thinned to one per outcome per
+    # `retention_bucket_seconds`. 0 bucket seconds disables retention.
+    retention_full_hours: float
+    retention_bucket_seconds: float
 
 
 @dataclass(slots=True)
@@ -67,6 +72,10 @@ class Settings:
                 poll_interval_seconds=float(scanner_raw.get("poll_interval_seconds", 3)),
                 db_path=db_path,
                 log_level=str(scanner_raw.get("log_level", "INFO")),
+                retention_full_hours=float(scanner_raw.get("retention_full_hours", 48)),
+                retention_bucket_seconds=float(
+                    scanner_raw.get("retention_bucket_seconds", 300)
+                ),
             ),
             edge=EdgeConfig(
                 risk_free_rate=float(raw.get("edge", {}).get("risk_free_rate", 0.0)),
