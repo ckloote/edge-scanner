@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS quote (
 CREATE INDEX IF NOT EXISTS idx_quote_outcome_ts ON quote(outcome_id, ts);
 
 -- Computed cross-venue edges over time. The actual research output.
+-- Main columns = the BETTER arb direction (its legs recorded); mirror_* = the
+-- losing direction's headline numbers (NULL when it had no tradable ask), so
+-- the two-sided spread and direction flips are captured.
 CREATE TABLE IF NOT EXISTS edge_snapshot (
     ts                 TIMESTAMP NOT NULL,
     event_id           TEXT NOT NULL,     -- from the links YAML
@@ -64,7 +67,9 @@ CREATE TABLE IF NOT EXISTS edge_snapshot (
     net_edge           REAL,              -- gross - fees - lockup
     executable_size    REAL,              -- min(depth on each leg)
     days_to_resolution REAL,
-    basis_risk_flag    INTEGER NOT NULL   -- 0/1, see design doc §6
+    basis_risk_flag    INTEGER NOT NULL,  -- 0/1, see design doc §6
+    mirror_net_edge         REAL,         -- losing direction's net (NULL pre-2026-07-02 rows)
+    mirror_executable_size  REAL
 );
 CREATE INDEX IF NOT EXISTS idx_edge_event_ts ON edge_snapshot(event_id, ts);
 
@@ -120,6 +125,10 @@ class Store:
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(market)")}
         if "url" not in cols:
             self.conn.execute("ALTER TABLE market ADD COLUMN url TEXT")
+        ecols = {row[1] for row in self.conn.execute("PRAGMA table_info(edge_snapshot)")}
+        for col in ("mirror_net_edge", "mirror_executable_size"):
+            if col not in ecols:
+                self.conn.execute(f"ALTER TABLE edge_snapshot ADD COLUMN {col} REAL")
 
     # --- writes ----------------------------------------------------------
 
@@ -172,13 +181,15 @@ class Store:
             """
             INSERT INTO edge_snapshot (ts, event_id, leg_a_outcome_id, leg_b_outcome_id,
                                        gross_edge, modeled_fees, lockup_cost, net_edge,
-                                       executable_size, days_to_resolution, basis_risk_flag)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       executable_size, days_to_resolution, basis_risk_flag,
+                                       mirror_net_edge, mirror_executable_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _iso(e.ts), e.event_id, e.leg_a_outcome_id, e.leg_b_outcome_id,
                 e.gross_edge, e.modeled_fees, e.lockup_cost, e.net_edge,
                 e.executable_size, e.days_to_resolution, e.basis_risk_flag,
+                e.mirror_net_edge, e.mirror_executable_size,
             ),
         )
 

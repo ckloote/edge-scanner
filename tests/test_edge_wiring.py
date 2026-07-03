@@ -83,6 +83,36 @@ def test_compute_edges_picks_better_direction(tmp_path):
     assert r["gross_edge"] == pytest.approx(0.07)  # the mirror, not -0.10
     assert r["leg_a_outcome_id"] == "kalshi:KT:NO"
     assert r["leg_b_outcome_id"] == "polymarket:0xPC:YES"
+    # The losing direction (gross -0.10) is captured too: its net is the -0.10
+    # gross minus its own fees and lockup, so strictly below the winner's net.
+    assert r["mirror_net_edge"] is not None
+    assert r["mirror_net_edge"] < r["net_edge"]
+    assert r["mirror_net_edge"] < -0.10  # gross -0.10 less costs
+    assert r["mirror_executable_size"] == pytest.approx(100.0)
+    sc.store.close()
+
+
+def test_mirror_columns_null_when_only_one_direction_quotable(tmp_path):
+    """Only the encoded direction has asks -> main columns fill, mirror stays NULL."""
+    res = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    link = EventLink(
+        event_id="one-sided",
+        legs=[Leg("kalshi", "KT", "YES"), Leg("polymarket", "0xPC", "NO")],
+        resolution_check="confirmed-equivalent",
+    )
+    sc = _scanner_with_link(tmp_path, link)
+    now = datetime.now(tz=timezone.utc)
+    _seed_leg(sc.store, "kalshi", "KT", 0, 0, res)
+    _seed_leg(sc.store, "polymarket", "0xPC", 0, 0, res)
+    sc.store.insert_quote(Quote(ts=now, outcome_id="kalshi:KT:YES", ask=0.60, ask_size=50))
+    sc.store.insert_quote(Quote(ts=now, outcome_id="polymarket:0xPC:NO", ask=0.35, ask_size=80))
+    # no KT:NO / 0xPC:YES quotes -> the mirror direction is unquotable
+
+    sc._compute_edges()
+    r = sc.store.edge_history("one-sided")[-1]
+    assert r["gross_edge"] == pytest.approx(0.05)
+    assert r["mirror_net_edge"] is None
+    assert r["mirror_executable_size"] is None
     sc.store.close()
 
 

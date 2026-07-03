@@ -94,7 +94,11 @@ class EdgeSnapshot:
     """Computed cross-venue edge at a point in time (design doc §4, §6).
 
     The actual research output. `gross_edge = 1 - (ask_a + ask_b)`;
-    `net_edge = gross_edge - modeled_fees - lockup_cost`.
+    `net_edge = gross_edge - modeled_fees - lockup_cost`. The main columns hold
+    the BETTER of the two arb directions (the chosen legs are recorded); the
+    `mirror_*` columns hold the losing direction's headline numbers so the full
+    two-sided spread and direction flips are captured — None when the mirror
+    had no tradable ask on both legs (or the link isn't a YES/NO binary).
     """
 
     ts: datetime
@@ -108,6 +112,8 @@ class EdgeSnapshot:
     executable_size: float
     days_to_resolution: float
     basis_risk_flag: int  # 0/1 (design doc §6)
+    mirror_net_edge: float | None = None
+    mirror_executable_size: float | None = None
 
 
 @dataclass(slots=True)

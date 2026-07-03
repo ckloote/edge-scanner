@@ -107,7 +107,8 @@ else:
     event_id = st.selectbox("Event", [r["event_id"] for r in summary])
     erows = conn.execute(
         "SELECT ts, gross_edge, net_edge, modeled_fees, lockup_cost, executable_size, "
-        "days_to_resolution, basis_risk_flag, leg_a_outcome_id, leg_b_outcome_id "
+        "days_to_resolution, basis_risk_flag, leg_a_outcome_id, leg_b_outcome_id, "
+        "mirror_net_edge "
         "FROM edge_snapshot WHERE event_id = ? ORDER BY ts",
         (event_id,),
     ).fetchall()
@@ -151,9 +152,10 @@ else:
     )
     st.caption(
         f"net = gross − fees − lockup · ~{latest['days_to_resolution']:.0f} days to "
-        f"resolution · lockup {latest['lockup_cost']:.4f}"
+        f"resolution · lockup {latest['lockup_cost']:.4f} · mirror = the losing "
+        f"direction's net (null before 2026-07-02)"
     )
-    st.line_chart(edf.set_index("ts")[["gross_edge", "net_edge"]])
+    st.line_chart(edf.set_index("ts")[["gross_edge", "net_edge", "mirror_net_edge"]])
 
 # --- Within-platform arb: Manifold paper trades (design doc §7 phase 2) ----
 st.subheader("Within-platform arb — Manifold paper trades")

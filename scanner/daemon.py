@@ -228,12 +228,15 @@ class Scanner:
 
     def _compute_edges(self, links: list[EventLink] | None = None) -> None:
         """For each linked event, evaluate BOTH arb directions from the latest quotes
-        and persist the more profitable one (design doc §6, direction-agnostic).
+        and persist one row: the more profitable direction in the main columns (its
+        legs recorded), the loser's net/exec in the mirror_* columns (design doc §6,
+        direction-agnostic).
 
         The mirror direction (buy the complement outcome on each leg) is just as valid
         an arb for a binary equivalence, so a divergence is captured whichever way it
-        leans — what the §1 frequency/duration question actually needs. `links`
-        defaults to the live (unretired) set."""
+        leans — and keeping the loser too records the full two-sided spread and the
+        direction flips, which can't be backfilled later. `links` defaults to the
+        live (unretired) set."""
         if links is None:
             links = self._live_links()
         now = datetime.now(tz=timezone.utc)
@@ -252,15 +255,19 @@ class Scanner:
             if comp_a and comp_b:  # binary -> the mirror direction is also a valid arb
                 directions.append((comp_a, comp_b))
 
-            best = None  # (oid_a, oid_b, EdgeResult) with the highest net edge
-            for out_a, out_b in directions:
-                cand = self._eval_direction(leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate)
-                if cand and (best is None or cand[2].net_edge > best[2].net_edge):
-                    best = cand
-            if best is None:
+            evaluated = [
+                cand
+                for out_a, out_b in directions
+                if (cand := self._eval_direction(
+                    leg_a, leg_b, mid_a, mid_b, out_a, out_b, days, basis, rate
+                ))
+            ]
+            if not evaluated:
                 continue  # need a tradable ask on both legs in at least one direction
+            evaluated.sort(key=lambda c: c[2].net_edge, reverse=True)
 
-            oid_a, oid_b, r = best
+            oid_a, oid_b, r = evaluated[0]  # the better direction: the main columns
+            mirror = evaluated[1][2] if len(evaluated) > 1 else None  # the loser
             self.store.insert_edge_snapshot(
                 EdgeSnapshot(
                     ts=now,
@@ -274,6 +281,8 @@ class Scanner:
                     executable_size=r.executable_size,
                     days_to_resolution=r.days_to_resolution,
                     basis_risk_flag=r.basis_risk_flag,
+                    mirror_net_edge=mirror.net_edge if mirror else None,
+                    mirror_executable_size=mirror.executable_size if mirror else None,
                 )
             )
 

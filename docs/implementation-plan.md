@@ -154,6 +154,10 @@ cross-venue edge computes end-to-end and renders in the dashboard.
   real after-fee edges the fixed-polarity version missed, e.g. `fed-sep-hold` flips to
   buy-Kalshi-NO + Poly-YES for net **+1.66%** (basis-clean), `wc26-usa` net **+0.48%**.
   The dashboard shows the chosen direction. Tests in `tests/test_edge_wiring.py`.
+  **Since 2026-07-02 the losing direction is persisted too** (`mirror_net_edge`,
+  `mirror_executable_size`; NULL for older rows and when the mirror is unquotable) —
+  the two-sided spread and direction flips can't be backfilled, so they're captured
+  as they happen. Idempotent column migration in `store._migrate()`.
 - **Do not** start automated semantic matching (design doc §7).
 
 ## Phase 4 — Calibration study (running since 2026-06-18)
