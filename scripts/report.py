@@ -38,7 +38,7 @@ def main() -> None:
     rows = c.execute(
         """
         SELECT e.event_id, e.net_edge, e.gross_edge, e.executable_size sz,
-               e.days_to_resolution days, e.basis_risk_flag b
+               e.days_to_resolution days, e.basis_risk_flag b, e.mirror_net_edge m
         FROM edge_snapshot e
         JOIN (SELECT event_id, MAX(ts) mt FROM edge_snapshot GROUP BY event_id) l
           ON e.event_id = l.event_id AND e.ts = l.mt
@@ -46,12 +46,13 @@ def main() -> None:
         """
     ).fetchall()
     if rows:
-        print("\nlatest edge per event (sorted by net):")
+        print("\nlatest edge per event (sorted by net; mirror = losing direction's net):")
         for r in rows:
             mark = " *" if r["net_edge"] > 0 else "  "
+            mirror = f"{r['m']:+.4f}" if r["m"] is not None else "      —"
             print(
                 f" {mark} {r['event_id']:18} net={r['net_edge']:+.4f} "
-                f"gross={r['gross_edge']:+.4f} exec={r['sz']:>9.0f} "
+                f"mirror={mirror} gross={r['gross_edge']:+.4f} exec={r['sz']:>9.0f} "
                 f"days={r['days']:>3.0f} basis={r['b']}"
             )
         print(f"\npositive-net events right now: {sum(1 for r in rows if r['net_edge'] > 0)}")

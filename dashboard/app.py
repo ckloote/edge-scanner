@@ -69,7 +69,7 @@ else:
     # and the SSH report agree on what's positive right now.
     summary = conn.execute(
         "SELECT e.event_id, e.net_edge, e.gross_edge, e.executable_size, "
-        "       e.days_to_resolution, e.basis_risk_flag "
+        "       e.days_to_resolution, e.basis_risk_flag, e.mirror_net_edge "
         "FROM edge_snapshot e "
         "JOIN (SELECT event_id, MAX(ts) mt FROM edge_snapshot GROUP BY event_id) l "
         "  ON e.event_id = l.event_id AND e.ts = l.mt "
@@ -93,6 +93,9 @@ else:
                 "": "🟢" if r["net_edge"] > 0 else "",
                 "event": r["event_id"],
                 "net": f"{r['net_edge']:+.4f}",
+                # losing direction's net: net-vs-mirror gap = the two-sided spread
+                "mirror": (f"{r['mirror_net_edge']:+.4f}"
+                           if r["mirror_net_edge"] is not None else "—"),
                 "gross": f"{r['gross_edge']:+.4f}",
                 "exec": f"{r['executable_size']:.0f}",
                 "days": f"{r['days_to_resolution']:.0f}",
@@ -116,7 +119,7 @@ else:
     edf["ts"] = pd.to_datetime(edf["ts"], format="ISO8601")
     latest = erows[-1]
 
-    m = st.columns(5)
+    m = st.columns(6)
     m[0].metric("gross edge", f"{latest['gross_edge']:+.4f}")
     # delta carries the sign-coloring (green when positive, red when negative).
     m[1].metric(
@@ -124,9 +127,17 @@ else:
         f"{latest['net_edge']:+.4f}",
         delta=f"{latest['net_edge'] * 100:+.2f}%",
     )
-    m[2].metric("modeled fees", f"{latest['modeled_fees']:.4f}")
-    m[3].metric("exec size", f"{latest['executable_size']:.0f}")
-    m[4].metric(
+    m[2].metric(
+        "mirror net",
+        (f"{latest['mirror_net_edge']:+.4f}"
+         if latest["mirror_net_edge"] is not None else "—"),
+        help="The losing direction's net edge; the gap to net edge is the "
+             "two-sided spread. A flip in which direction wins shows as the "
+             "chart lines crossing.",
+    )
+    m[3].metric("modeled fees", f"{latest['modeled_fees']:.4f}")
+    m[4].metric("exec size", f"{latest['executable_size']:.0f}")
+    m[5].metric(
         "basis risk",
         "⚠ flagged" if latest["basis_risk_flag"] else "clean",
         help="A flagged edge is not a clean arb (design doc §6).",
