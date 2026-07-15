@@ -64,6 +64,20 @@ def test_already_linked_pairs_excluded():
     assert len(match_candidates(k, p)) == 1
 
 
+def test_price_band_drops_effectively_decided_markets():
+    k_dead = [_cand("kalshi", "K1", "Fed maintains rates in October 2026?", yes=0.99)]
+    p = [_cand("polymarket", "0x1", "Fed maintains rates in October 2026?", yes=0.50)]
+    assert match_candidates(k_dead, p, price_band=0.05) == []
+    k_live = [_cand("kalshi", "K1", "Fed maintains rates in October 2026?", yes=0.30)]
+    p_dead = [_cand("polymarket", "0x1", "Fed maintains rates in October 2026?", yes=0.02)]
+    assert match_candidates(k_live, p_dead, price_band=0.05) == []
+    assert len(match_candidates(k_live, p, price_band=0.05)) == 1
+    # unknown price passes (missing data isn't a dead market); band 0 disables
+    k_none = [_cand("kalshi", "K1", "Fed maintains rates in October 2026?", yes=None)]
+    assert len(match_candidates(k_none, p, price_band=0.05)) == 1
+    assert len(match_candidates(k_dead, p, price_band=0.0)) == 1
+
+
 def test_divergence_and_stanza_defaults_suspect():
     k = _cand("kalshi", "KXFED-26OCT-H0", "Fed maintains rates in October 2026?", yes=0.80)
     p = _cand("polymarket", "0xabc", "Fed maintains October 2026?", yes=0.75)

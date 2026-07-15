@@ -213,6 +213,10 @@ def main() -> None:
                     help="Polymarket volume floor in $ (default 50k)")
     ap.add_argument("--date-tol", type=float, default=DEFAULT_DATE_TOL_DAYS,
                     help=f"max resolution-date mismatch in days (default {DEFAULT_DATE_TOL_DAYS:.0f})")
+    ap.add_argument("--price-band", type=float, default=0.05,
+                    help="skip candidates whose YES price on either venue is outside "
+                         "[BAND, 1-BAND] — filters effectively-decided markets "
+                         "(default 0.05; 0 disables)")
     args = ap.parse_args()
 
     already = {
@@ -231,9 +235,11 @@ def main() -> None:
     matches = match_candidates(
         kalshi, poly,
         min_score=args.min_score, date_tol_days=args.date_tol, exclude=already,
+        price_band=args.price_band,
     )
     if not matches:
-        print("no candidates above the similarity floor — try --min-score 0.4 or a longer --days")
+        print("no candidates above the similarity floor — try --min-score 0.4, a longer "
+              "--days, or --price-band 0")
         return
 
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")

@@ -87,6 +87,16 @@ def _dates_compatible(a: CandidateMarket, b: CandidateMarket, tol_days: float) -
     return abs((a.resolution - b.resolution).total_seconds()) <= tol_days * 86400.0
 
 
+def _price_sane(m: CandidateMarket, band: float) -> bool:
+    """YES price inside [band, 1-band] — an effectively-decided market (an
+    eliminated team's prop trades at ~0 or ~1) can't yield a real two-sided
+    edge, just lockup on a foregone conclusion. Unknown prices pass: missing
+    data isn't evidence of a dead market."""
+    if band <= 0 or m.yes_price is None:
+        return True
+    return band <= m.yes_price <= 1.0 - band
+
+
 def match_candidates(
     kalshi: list[CandidateMarket],
     poly: list[CandidateMarket],
@@ -94,15 +104,22 @@ def match_candidates(
     min_score: float = DEFAULT_MIN_SCORE,
     date_tol_days: float = DEFAULT_DATE_TOL_DAYS,
     exclude: set[tuple[str, str]] | None = None,
+    price_band: float = 0.0,
 ) -> list[MatchResult]:
     """Rank candidate (kalshi, polymarket) pairs by title similarity.
 
     `exclude` is a set of (venue, venue_market_id) already curated in links.yaml
-    — any pair touching one is skipped. Returns the best polymarket match per
-    kalshi market (a market shouldn't seed two links), sorted by score desc.
+    — any pair touching one is skipped. `price_band` > 0 drops candidates whose
+    YES price on either venue is outside [band, 1-band] (see _price_sane).
+    Returns the best polymarket match per kalshi market (a market shouldn't
+    seed two links), sorted by score desc.
     """
     exclude = exclude or set()
-    poly = [p for p in poly if (p.venue, p.venue_market_id) not in exclude]
+    kalshi = [k for k in kalshi if _price_sane(k, price_band)]
+    poly = [
+        p for p in poly
+        if (p.venue, p.venue_market_id) not in exclude and _price_sane(p, price_band)
+    ]
     index: dict[str, list[int]] = {}
     for i, p in enumerate(poly):
         for t in tokens(p.title):
