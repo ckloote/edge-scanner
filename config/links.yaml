@@ -5,9 +5,11 @@
 #
 # Polarity convention (fixed for the whole set): leg A = Kalshi buy YES,
 # leg B = Polymarket buy NO. At resolution exactly one leg pays $1, so the pair
-# costs kalshi_yes_ask + poly_no_ask and the edge is 1 - that (design doc §6). This
-# measures the spread in ONE direction; the reverse-direction edge (Polymarket YES +
-# Kalshi NO) is not tracked — adding reverse links is a future option.
+# costs kalshi_yes_ask + poly_no_ask and the edge is 1 - that (design doc §6).
+# This is just an ENCODING convention: each cycle the daemon also evaluates the
+# complement direction (Kalshi buy NO + Polymarket buy YES), persists whichever
+# nets higher in the main edge_snapshot columns, and records the loser in
+# mirror_net_edge / mirror_executable_size. No reverse links needed.
 #
 # Bias toward NEAR-DATED events (smallest lockup): the Fed July meeting (~6 weeks)
 # and the World Cup final (~5 weeks) anchor the set.

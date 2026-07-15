@@ -143,7 +143,7 @@ def yaml_stanza(m: MatchResult, *, today: str) -> str:
         f"  - event_id: {event_id}   # EDIT: rename; verify resolution equivalence\n"
         f'    note: "{m.a.title} == {m.b.title} (suggested {today}; VERIFY before trusting)"\n'
         f"    resolution_check: suspect   # flip to confirmed-equivalent after verifying\n"
-        f"    legs:\n"
+        f"    legs:   # encoding only — the daemon evaluates BOTH directions each cycle\n"
         f'      - {{venue: kalshi, venue_market_id: {m.a.venue_market_id}, buy_outcome: "YES"}}\n'
         f'      - {{venue: polymarket, venue_market_id: "{m.b.venue_market_id}", buy_outcome: "NO"}}\n'
     )
