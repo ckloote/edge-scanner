@@ -15,11 +15,17 @@ emitted with `resolution_check: suspect`; you verify BOTH markets resolve on the
 same criteria and date, then flip it to confirmed-equivalent by hand.
 
 Manifold is out of scope: study links are real-money Kalshi<->Polymarket pairs.
+
+Each candidate's stanza is fenced by rules and colorized on an interactive
+terminal (metadata dim, stanza cyan, suspect/EDIT/VERIFY markers yellow);
+piping the output or setting NO_COLOR yields plain text.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -38,6 +44,54 @@ from scanner.curation import (
 
 KALSHI_EVENT_PAGES = 40  # ~7k open events @ 200/page (probed 2026-07-02, ~1 min)
 POLY_PAGE_CAP = 25
+
+# --- output formatting: fence the paste-able stanza off from the metadata ----
+# Color only when stdout is an interactive terminal (or FORCE_COLOR is set),
+# never when NO_COLOR is set — piping to a file/grep always yields plain text.
+_COLOR = (os.environ.get("FORCE_COLOR") or sys.stdout.isatty()) and not os.environ.get("NO_COLOR")
+RULE_W = 60
+HEAVY_RULE = "━" * RULE_W
+PASTE_RULE = "┄" * 9 + " paste into config/links.yaml " + "┄" * (RULE_W - 39)
+END_RULE = "┄" * RULE_W
+
+
+def _c(code: str, s: str) -> str:
+    return f"\033[{code}m{s}\033[0m" if _COLOR else s
+
+
+def _dim(s: str) -> str:
+    return _c("2", s)
+
+
+def _stanza(text: str) -> str:
+    """Cyan stanza with the act-on-me markers (suspect/EDIT/VERIFY) in yellow."""
+    text = text.rstrip("\n")
+    if not _COLOR:
+        return text
+    lines = []
+    for line in text.split("\n"):
+        line = f"\033[36m{line}\033[0m"
+        for marker in ("suspect", "EDIT", "VERIFY"):
+            line = line.replace(marker, f"\033[33m{marker}\033[0m\033[36m")
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _print_candidate(i: int, m, today: str) -> None:
+    div = f"{m.divergence:.3f}" if m.divergence is not None else "?"
+    vol = f"${m.b.volume:,.0f}" if m.b.volume else "?"
+    print(_dim(HEAVY_RULE))
+    print(f"#{i} · score {m.score:.2f} · YES {m.a.yes_price} vs {m.b.yes_price} "
+          f"(divergence {div}) · poly volume {vol}")
+    print(_dim(f"   kalshi  {m.a.venue_market_id} — {m.a.title}"))
+    print(_dim(f"           resolves ~{m.a.resolution:%Y-%m-%d}"))
+    print(_dim(f"   poly    {m.b.title}"))
+    print(_dim(f"           resolves ~{m.b.resolution:%Y-%m-%d}  {m.b.url or ''}"))
+    print()
+    print(_dim(PASTE_RULE))
+    print(_stanza(yaml_stanza(m, today=today)))
+    print(_dim(END_RULE))
+    print()
 
 
 def fetch_kalshi(client: httpx.Client, horizon_days: float) -> list[CandidateMarket]:
@@ -184,15 +238,7 @@ def main() -> None:
 
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     for i, m in enumerate(matches[: args.top], 1):
-        div = f"{m.divergence:.3f}" if m.divergence is not None else "?"
-        vol = f"${m.b.volume:,.0f}" if m.b.volume else "?"
-        print(f"#{i}  score {m.score:.2f} | YES {m.a.yes_price} vs {m.b.yes_price} "
-              f"(divergence {div}) | poly volume {vol}")
-        print(f"    kalshi: {m.a.venue_market_id} — {m.a.title}")
-        print(f"            resolves ~{m.a.resolution:%Y-%m-%d}")
-        print(f"    poly:   {m.b.title}")
-        print(f"            resolves ~{m.b.resolution:%Y-%m-%d}  {m.b.url or ''}")
-        print(yaml_stanza(m, today=today))
+        _print_candidate(i, m, today)
 
     print("paste chosen stanzas into config/links.yaml, VERIFY resolution equivalence,")
     print("flip resolution_check to confirmed-equivalent, then restart the scanner:")
